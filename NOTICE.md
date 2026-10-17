@@ -23,7 +23,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 The plugins statically link CommonLibOB64 (https://github.com/libxse/commonlibob64, commit
 3e5ee4fcf96593125339d0035e92be9280eb3acd) and its commonlib-shared library (https://github.com/libxse/commonlib-shared, commit
 9fbb74d628134ab4ea3a3cf5c0ed3f7eeabbd01d), both GPL-3.0; the modding exception that comes with the plugin template is kept in the
-source archive as `EXCEPTIONS`. The complete corresponding source of both plugins is in `Oblivion_Menu_Search_and_Controller_Keyboard_source_v1.1.0.zip`,
+source archive as `EXCEPTIONS`. The complete corresponding source of both plugins is in `Menu_Search_and_Controller_Keyboard_source_v1.1.0.zip`,
 released with them.
 
 Components under other licences, with their notices: `THIRD_PARTY_NOTICES.md`.
