@@ -27,12 +27,24 @@ namespace
 	}
 }
 
-// What the Search Keyboard plugin (OblivionSearchKeyboard.dll) uses, by name through GetProcAddress. A menu is 1 = Inventory, 2 = Magic.
+// What the Controller Keyboard plugin (OblivionSearchKeyboard.dll) uses, by name through GetProcAddress.A menu is 1 = Inventory, 2 = Magic, 3 = the container / barter menu's your side, 4 = its other side.
 extern "C"
 {
 	__declspec(dllexport) int OblivionMenuSearch_ApiVersion()
 	{
-		return 1;
+		return 2;   // 2 added the container / barter menu: menus 3 (yours) and 4 (the other side), and OblivionMenuSearch_ActiveContext
+	}
+
+	// the menu that is open: 0 none, 1 Inventory, 2 Magic, 3 the container / barter menu (its sides are the menu ids 3 and 4)
+	__declspec(dllexport) int OblivionMenuSearch_ActiveContext()
+	{
+		return msearch::Context();
+	}
+
+	// a container / barter side's list is on the left half of the screen (the keyboard goes on the other half); version 2
+	__declspec(dllexport) bool OblivionMenuSearch_PanelOnLeft(int a_menu)
+	{
+		return msearch::PanelOnLeft(static_cast<menus::Menu>(a_menu));
 	}
 
 	__declspec(dllexport) bool OblivionMenuSearch_Enabled(int a_menu)

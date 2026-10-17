@@ -1,4 +1,4 @@
-// Oblivion Search Keyboard (Oblivion Remastered) - entry point.
+// Menu Search - Controller Keyboard (OblivionSearchKeyboard.dll, Oblivion Remastered) - entry point.
 // A controller on-screen keyboard for the search of the Oblivion Menu Search plugin (it needs that plugin).
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -36,7 +36,7 @@ OBSE_PLUGIN_LOAD(const OBSE::LoadInterface* a_obse)
 		const auto level = static_cast<spdlog::level::level_enum>(std::clamp(cfg::Get().logLevel, 0, 4));
 		logger::set_level(level, level);
 	}
-	logger::info("Oblivion Search Keyboard loaded");
+	logger::info("Menu Search - Controller Keyboard loaded");
 	if (auto* messaging = OBSE::GetMessagingInterface()) {
 		if (!messaging->RegisterListener(&OnMessage)) {
 			logger::error("OBSE messaging: listener refused - the controller hook will not be installed");

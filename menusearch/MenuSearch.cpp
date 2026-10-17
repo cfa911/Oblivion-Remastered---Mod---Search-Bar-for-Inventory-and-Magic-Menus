@@ -1,11 +1,14 @@
 #include "MenuSearch.h"
 
 #include "Config.h"
+#include "Container.h"
 #include "PEHook.h"
+#include "Probe.h"
 #include "Reflect.h"
 #include "Ui.h"
 #include "UiText.h"
 
+#include <cmath>
 #include <cstring>
 #include <unordered_set>
 
@@ -20,27 +23,36 @@ namespace msearch
 		// the text of the search bar (one per menu, ASCII), and the flags the window procedure shares with the game thread
 		bool                g_conflict = false;   // another search mod is installed: everything here stands down
 		std::mutex           g_qMutex;             // the window procedure may run on another thread than the game's
-		std::string          g_queries[3];
+		std::string          g_queries[5];   // by menu: kInventory, kMagic, kContainerYours, kContainerTheirs
 		std::atomic<bool>    g_typing{ false };
 		std::atomic<int>     g_typingMenu{ 0 };
-		std::atomic<bool>    g_external{ false };   // the controller keyboard (another plugin) has the text: typed keys are not taken
+		std::atomic<bool>    g_sideShown[5];   // the container / barter menu's sides that are on the screen now (a plain container shows only its own)
+					double               g_canvasW = 1920;   // the container menu's root canvas, menu units (for which half of the screen a list is on)
+					std::atomic<bool>    g_external{ false };   // the controller keyboard (another plugin) has the text: typed keys are not taken
 		DWORD                g_gameThread = 0;
 
+		bool IsSide(menus::Menu a_menu) { return a_menu == menus::Menu::kContainerYours || a_menu == menus::Menu::kContainerTheirs; }
 		bool MenuEnabled(menus::Menu a_menu)
 		{
 			if (g_conflict) return false;
-			return (a_menu == menus::Menu::kInventory && cfg::Get().inventory) || (a_menu == menus::Menu::kMagic && cfg::Get().magic);
+			return (a_menu == menus::Menu::kInventory && cfg::Get().inventory) || (a_menu == menus::Menu::kMagic && cfg::Get().magic)|| (IsSide(a_menu) && cfg::Get().container && g_sideShown[static_cast<int>(a_menu)].load());
 		}
-		bool OwnBarOn() { return !g_conflict && (cfg::Get().inventory || cfg::Get().magic); }
+		bool OwnBarOn() { return !g_conflict && (cfg::Get().inventory || cfg::Get().magic || cfg::Get().container); }
+		// a menu is present when it is the open one; in the container / barter menu both sides are
+		bool Present(menus::Menu a_menu, menus::Menu a_active)
+		{
+			return a_menu == a_active || (IsSide(a_menu) && a_active == menus::Menu::kNone && container::Open());
+		}
+		UE::UObject* MenuWidget(menus::Menu a_menu) { return IsSide(a_menu) ? container::Widget() : menus::Widget(a_menu); }
 		std::string QueryOf(menus::Menu a_menu)
 		{
 			std::scoped_lock l(g_qMutex);
-			return g_queries[static_cast<int>(a_menu) % 3];
+			return g_queries[static_cast<int>(a_menu) % 5];
 		}
 		void SetQuery(menus::Menu a_menu, const std::string& a_text)
 		{
 			std::scoped_lock l(g_qMutex);
-			g_queries[static_cast<int>(a_menu) % 3] = a_text;
+			g_queries[static_cast<int>(a_menu) % 5] = a_text;
 		}
 
 		// the user widget (the menu) a widget sits in
@@ -156,7 +168,7 @@ namespace msearch
 		}
 	};
 
-		FilterState g_filter[3];   // by menu: kInventory, kMagic
+		FilterState g_filter[5];   // by menu
 
 		// ---- our own search bar (Inventory and Magic) ----
 		// A bar in the menu's own root canvas, where the search mods put theirs, and the typing for it: while it is being typed into, the
@@ -167,15 +179,18 @@ namespace msearch
 
 		struct BarWidgets
 		{
-			reflect::Handle   canvas, frame, edge, label;
+			reflect::Handle   canvas, frame, edge, label, frameSlot, labelSlot;
 			bool              textured = false;
 			std::string       shown;
+			std::string       hint = "Search";   // what the empty bar says (the container / barter menu's say whose list it is)
 			bool              typing = false;
+			bool              visible = true;
+			double            x = 0, y = 0, w = 0, h = 0;   // where it sits in its canvas (menu units)
 			Clock::time_point nextLook{}, nextMeasure{};
 		};
-		BarWidgets g_bar[3];
+		BarWidgets g_bar[5];
 		struct PxRect { double x = 0, y = 0, w = 0, h = 0; bool valid = false; };
-		PxRect  g_barPx[3];   // the bar's place in window pixels (g_qMutex)
+		PxRect  g_barPx[5];   // the bar's place in window pixels (g_qMutex)
 		HWND    g_hwnd = nullptr;
 		WNDPROC  g_origProc = nullptr;
 
@@ -197,9 +212,9 @@ namespace msearch
 		{
 			static auto* canvasClass = ui::Class(L"/Script/UMG.CanvasPanel");
 			static auto* treeClass = ui::Class(L"/Script/UMG.WidgetTree");
-			auto*        menuW = menus::Widget(a_menu);
-			if (!menuW || !canvasClass || !treeClass || !reflect::Ok()) return nullptr;
-			auto* wrapper = ui::FindInTree(menuW, a_menu == menus::Menu::kMagic ? "Magic_Spell_List" : "inv_cont_listview");
+			auto*        menuW = MenuWidget(a_menu);
+							if (!menuW || !canvasClass || !treeClass || !reflect::Ok()) return nullptr;
+			auto* wrapper = IsSide(a_menu) ? nullptr : ui::FindInTree(menuW, a_menu == menus::Menu::kMagic ? "Magic_Spell_List" : "inv_cont_listview");
 			auto* owner = wrapper ? OwnerWidget(wrapper) : nullptr;
 			for (auto* w : { menuW, owner }) {
 				if (!w || !w->GetClass()) continue;
@@ -216,49 +231,92 @@ namespace msearch
 			return nullptr;
 		}
 
-		// the bar's black, grainy panel: a PNG from the plugin's folder, else a plain rounded box
-		UE::UObject* BarTexture()
+		// the bar's panel: a PNG from the plugin's folder (black for the Inventory and the Magic menu, green for your side of the container / barter menu, red
+		// for the other side), else the black one, else a plain rounded box
+		UE::UObject* BarTexture(menus::Menu a_menu)
 		{
-			static reflect::Handle s_tex;
-			static bool            s_failed = false;
-			if (auto* t = reflect::Get(s_tex)) return t;
-			if (s_failed) return nullptr;
-			const auto path = cfg::PluginFolder() / L"OblivionMenuSearch" / L"SearchBar.png";
-			static auto* lib = ui::Class(L"/Script/Engine.KismetRenderingLibrary");
-			ui::Call     c(lib ? lib->GetDefaultObject(false) : nullptr, L"ImportFileAsTexture2D");
-			void*        file = c.At("Filename");
-			UE::UObject* tex = nullptr;
-			if (c && file && std::filesystem::exists(path)) {
+			const int slot = a_menu == menus::Menu::kContainerYours ? 1 : a_menu == menus::Menu::kContainerTheirs ? 2 : 0;
+			static reflect::Handle s_tex[3];
+			static bool            s_failed[3] = { false, false, false };
+			if (auto* t = reflect::Get(s_tex[slot])) return t;
+			if (s_failed[slot]) return slot ? BarTexture(menus::Menu::kInventory) : nullptr;
+			const wchar_t* file = slot == 1 ? L"SearchBarYours.png" : slot == 2 ? L"SearchBarTheirs.png" : L"SearchBar.png";
+			const auto     path = cfg::PluginFolder() / L"OblivionMenuSearch" / file;
+			static auto*   lib = ui::Class(L"/Script/Engine.KismetRenderingLibrary");
+			ui::Call       c(lib ? lib->GetDefaultObject(false) : nullptr, L"ImportFileAsTexture2D");
+			void*          fname = c.At("Filename");
+			UE::UObject*   tex = nullptr;
+			if (c && fname && std::filesystem::exists(path)) {
 				c.Set("WorldContextObject", ui::PlayerController());
-				auto* s = new (file) UE::FString(path.wstring().c_str());
+				auto* str = new (fname) UE::FString(path.wstring().c_str());
 				tex = c.RunGuarded() ? c.Get<UE::UObject*>("ReturnValue") : nullptr;
-				s->~FString();
+				str->~FString();
 			}
 			if (!tex) {
-				s_failed = true;
-				logger::warn("own bar: the bar image could not be loaded ({}{}) - a plain box is used", path.string(), std::filesystem::exists(path) ? "" : ", missing");
-				return nullptr;
+				s_failed[slot] = true;
+				logger::warn("own bar: the bar image could not be loaded ({}{}) - {}", path.string(), std::filesystem::exists(path) ? "" : ", missing", slot ? "the black one is used" : "a plain box is used");
+				return slot ? BarTexture(menus::Menu::kInventory) : nullptr;
 			}
-			s_tex = reflect::Hold(tex);
+			s_tex[slot] = reflect::Hold(tex);
 			logger::info("own bar: the bar image is loaded from {}", path.filename().string());
 			return tex;
 		}
 
+		// a side of the container / barter menu is on the screen (a plain container shows only its own list)
+		bool SideShownNow(menus::Menu a_side)
+		{
+			auto* content = container::SideContent(a_side);
+			return content && ui::ShownOnScreen(content);
+		}
+
+		// the container / barter menu's bar: above the side's header (menu units, local to the menu's root canvas); the container's list alone on the
+		// screen (the player's side not shown) has a place of its own
+		bool ContainerBarRect(menus::Menu a_side, UE::UObject* a_canvas, double& a_x, double& a_y, double& a_w, double& a_h, bool a_log)
+		{
+			auto* content = container::SideContent(a_side);
+			auto* header = content ? ui::FindInTree(content, "inv_cont_header") : nullptr;
+			double hx = 0, hy = 0, hw = 0, hh = 0, cx = 0, cy = 0, cw = 0, ch = 0;
+			if (!header || !ui::Measure(header, hx, hy, hw, hh) || !ui::Measure(a_canvas, cx, cy, cw, ch) || hw < 10 || hh < 1) return false;
+			const auto& c = cfg::Get();
+			// the container's list without the tab row above it (a plain container, nothing to give) has a place of its own; with the tabs (beside yours in a
+			// transfer or a barter, or beside an item's details) it sits like the barter's
+			auto*       menuW = container::Widget();
+			auto*       tabs = menuW ? ui::FindInTree(menuW, a_side == menus::Menu::kContainerYours ? "cont_give_tabs" : "cont_take_tabs") : nullptr;
+			const bool  take = a_side == menus::Menu::kContainerTheirs && !(tabs && ui::ShownOnScreen(tabs));
+			const auto& p = take ? c.takeBar : a_side == menus::Menu::kContainerYours ? c.yoursBar : c.theirsBar;
+			a_h = p.h;
+			a_w = p.w > 0 ? p.w : hw + 2 * std::abs(p.x);
+			a_x = hx - cx + p.x;
+			a_y = hy - cy - a_h - 6 + p.y;
+			if (cw > 100) g_canvasW = cw;
+			if (a_log) {
+				logger::info("own bar: {}{} - header at {:.0f},{:.0f} {:.0f}x{:.0f}, canvas at {:.0f},{:.0f} {:.0f}x{:.0f} -> bar at {:.0f},{:.0f} {:.0f}x{:.0f}", menus::Name(a_side), take ? " (its list alone)" : "", hx, hy, hw, hh, cx, cy, cw, ch, a_x, a_y, a_w, a_h);
+				for (const char* name : { "inv_cont_title", "inv_cont_filter", "inv_cont_listview_overlay" }) {
+					double x = 0, y = 0, w = 0, h = 0;
+					if (auto* o = ui::FindInTree(content, name); o && ui::Measure(o, x, y, w, h)) logger::info("own bar:   {} at {:.0f},{:.0f} {:.0f}x{:.0f}", name, x, y, w, h);
+				}
+			}
+			return true;
+		}
+
 		bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 		{
-			static int s_n = 0;
+			static int         s_n = 0;
 			const std::wstring n = std::to_wstring(++s_n);
-			const auto&       c = cfg::Get();
-			UE::UObject*      slot = nullptr;
-			auto*             frame = ui::AddToCanvas(a_canvas, L"/Script/UMG.Image", (L"IwmBarFrame" + n).c_str(), &slot);
+			const auto&        c = cfg::Get();
+			const auto&        place = a_menu == menus::Menu::kMagic ? c.magicBar : c.inventoryBar;
+			double             barX = place.x, barW = place.w, barH = place.h;
+			double             barY = place.y;
+			if (IsSide(a_menu) && !ContainerBarRect(a_menu, a_canvas, barX, barY, barW, barH, true)) return false;
+			UE::UObject* slot = nullptr;
+			auto*        frame = ui::AddToCanvas(a_canvas, L"/Script/UMG.Image", (L"IwmBarFrame" + n).c_str(), &slot);
 			if (!frame || !slot) return false;
-			const double barY = c.barY + (a_menu == menus::Menu::kMagic ? c.barYMagic : c.barYInventory);
-			ui::Vec2(slot, L"SetPosition", c.barX, barY);
-			ui::Vec2(slot, L"SetSize", c.barW, c.barH);
+			ui::Vec2(slot, L"SetPosition", barX, barY);
+			ui::Vec2(slot, L"SetSize", barW, barH);
 			const std::int32_t z = 1000;
 			ui::CallFirst(slot, L"SetZOrder", &z, sizeof(z));
 			bool textured = false;
-			if (auto* tex = BarTexture()) {
+			if (auto* tex = BarTexture(a_menu)) {
 				ui::Call b(frame, L"SetBrushFromTexture");
 				b.Set("Texture", tex);
 				b.Set("bMatchSize", false);
@@ -272,19 +330,37 @@ namespace msearch
 			ui::Vec2(lslot, L"SetAlignment", 0.5, 0.5);
 			const bool yes = true;
 			ui::CallFirst(lslot, L"SetAutoSize", &yes, sizeof(yes));
-			ui::Vec2(lslot, L"SetPosition", c.barX + c.barW * 0.5, barY + c.barH * 0.5);
+			ui::Vec2(lslot, L"SetPosition", barX + barW * 0.5, barY + barH * 0.5);
 			const std::int32_t z2 = 1001;
 			ui::CallFirst(lslot, L"SetZOrder", &z2, sizeof(z2));
 			ui::Visible(label, true);
 			BarWidgets& B = g_bar[static_cast<int>(a_menu)];
 			B.canvas = reflect::Hold(a_canvas);
 			B.frame = reflect::Hold(frame);
+			B.frameSlot = reflect::Hold(slot);
 			B.textured = textured;
 			B.label = reflect::Hold(label);
+			B.labelSlot = reflect::Hold(lslot);
+			B.x = barX;
+			B.y = barY;
+			B.w = barW;
+			B.h = barH;
+			B.visible = true;
 			B.shown = "\x01";   // matches nothing real: the first update draws it
 			B.typing = false;
 			logger::info("own bar: built in the {}", menus::Name(a_menu));
 			return true;
+		}
+
+		// a side that is not on the screen has no bar
+		void HideBar(menus::Menu a_menu)
+		{
+			BarWidgets& B = g_bar[static_cast<int>(a_menu)];
+			if (!B.visible) return;
+			if (auto* f = reflect::Get(B.frame)) ui::Visible(f, false);
+			if (auto* l = reflect::Get(B.label)) ui::Visible(l, false);
+			B.visible = false;
+			g_barPx[static_cast<int>(a_menu)].valid = false;
 		}
 
 		void UpdateBar(menus::Menu a_menu, Clock::time_point a_now)
@@ -293,11 +369,16 @@ namespace msearch
 			auto*       label = reflect::Get(B.label);
 			auto*       frame = reflect::Get(B.frame);
 			if (!label || !frame) return;
+			if (!B.visible) {
+				ui::Visible(frame, true);
+				ui::Visible(label, true);
+				B.visible = true;
+			}
 			const bool        typing = g_typing.load() && g_typingMenu.load() == static_cast<int>(a_menu);
 			const std::string q = QueryOf(a_menu);
 			const bool        caret = typing && (GetTickCount64() / 500) % 2 == 0;
 			const bool        hint = q.empty() && !typing;
-			const std::string show = hint ? std::string("Search") : q + (typing ? (caret ? "|" : " ") : "");
+			const std::string show = hint ? B.hint : q + (typing ? (caret ? "|" : " ") : "");
 			const std::string key = std::string(hint ? "#" : "=") + show;
 			if (key != B.shown) {
 				uix::SetText(label, show);
@@ -311,6 +392,34 @@ namespace msearch
 			}
 			if (a_now >= B.nextMeasure) {   // where it is in window pixels, for a click on it
 				B.nextMeasure = a_now + 150ms;
+				if (IsSide(a_menu)) {
+					// yours says Player; the other side Seller in a barter (the merchant's gold row is on screen), else Container
+					std::string want = "Player";
+					if (a_menu == menus::Menu::kContainerTheirs) {
+						auto* money = container::Widget() ? ui::FindInTree(container::Widget(), "cont_take_money_verticalbox") : nullptr;
+						want = money && ui::ShownOnScreen(money) ? "Seller" : "Container";
+					}
+					if (want != B.hint) {
+						B.hint = want;
+						logger::info("own bar: the {}'s empty bar says {}", menus::Name(a_menu), want);
+					}
+					// the layout can change (the container's list alone, or beside yours): the bar follows its header
+					auto*  canvas = reflect::Get(B.canvas);
+					auto*  slot = reflect::Get(B.frameSlot);
+					auto*  lslot = reflect::Get(B.labelSlot);
+					double x = 0, y = 0, w = 0, h = 0;
+					if (canvas && slot && lslot && ContainerBarRect(a_menu, canvas, x, y, w, h, false) &&
+						(std::abs(x - B.x) > 0.5 || std::abs(y - B.y) > 0.5 || std::abs(w - B.w) > 0.5 || std::abs(h - B.h) > 0.5)) {
+						ui::Vec2(slot, L"SetPosition", x, y);
+						ui::Vec2(slot, L"SetSize", w, h);
+						ui::Vec2(lslot, L"SetPosition", x + w * 0.5, y + h * 0.5);
+						B.x = x;
+						B.y = y;
+						B.w = w;
+						B.h = h;
+						logger::info("own bar: the {}'s bar moved to {:.0f},{:.0f} {:.0f}x{:.0f}", menus::Name(a_menu), x, y, w, h);
+					}
+				}
 				double x = 0, y = 0, w = 0, h = 0;
 				if (ui::Measure(frame, x, y, w, h)) {
 					const double s = ViewportScale();
@@ -338,7 +447,7 @@ namespace msearch
 		void Typed(wchar_t a_c, menus::Menu a_menu)
 		{
 			std::scoped_lock l(g_qMutex);
-			auto&            q = g_queries[static_cast<int>(a_menu) % 3];
+			auto&            q = g_queries[static_cast<int>(a_menu) % 5];
 			if (a_c == 8) {
 				if (!q.empty()) q.pop_back();
 			} else if (a_c == 0x16) {   // Ctrl+V
@@ -352,11 +461,23 @@ namespace msearch
 		{
 			const int x = static_cast<short>(LOWORD(a_l)), y = static_cast<short>(HIWORD(a_l));
 			std::scoped_lock l(g_qMutex);
-			const auto& r = g_barPx[static_cast<int>(a_menu) % 3];
+			const auto& r = g_barPx[static_cast<int>(a_menu) % 5];
 			return r.valid && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 		}
 
 		bool ControllerKeyboardUp() { return g_external.load(); }
+
+		// the container / barter menu's side the mouse is over: yours is on the left (cont_give), the other on the right
+		menus::Menu SideUnderCursor()
+		{
+			const bool yours = g_sideShown[static_cast<int>(menus::Menu::kContainerYours)].load(), theirs = g_sideShown[static_cast<int>(menus::Menu::kContainerTheirs)].load();
+			if (yours && !theirs) return menus::Menu::kContainerYours;
+			if (theirs && !yours) return menus::Menu::kContainerTheirs;
+			POINT pt{};
+			RECT  rc{};
+			if (g_hwnd && GetCursorPos(&pt) && ScreenToClient(g_hwnd, &pt) && GetClientRect(g_hwnd, &rc) && pt.x > (rc.right - rc.left) / 2) return menus::Menu::kContainerTheirs;
+			return menus::Menu::kContainerYours;
+		}
 
 		constexpr UINT_PTR kTimerId = 0x4D53;
 
@@ -372,7 +493,9 @@ namespace msearch
 				return 0;
 			}
 			if (OwnBarOn()) {
-				const auto menu = menus::Active();
+				auto       menu = menus::Active();
+				const bool cont = menu == menus::Menu::kNone && container::Open();
+				if (cont) menu = g_typing.load() ? static_cast<menus::Menu>(g_typingMenu.load()) : SideUnderCursor();   // the container / barter menu: the side typed into, else the one the mouse is on
 				if (MenuEnabled(menu)) {
 					if (g_typing.load()) {
 						switch (a_m) {
@@ -383,6 +506,13 @@ namespace msearch
 							Typed(static_cast<wchar_t>(a_w), menu);
 							return 0;
 						case WM_LBUTTONDOWN:
+							if (cont && !InsideBar(menu, a_l)) {   // the other side's bar: typing moves there
+								const auto other = menu == menus::Menu::kContainerYours ? menus::Menu::kContainerTheirs : menus::Menu::kContainerYours;
+								if (MenuEnabled(other) && InsideBar(other, a_l)) {
+									g_typingMenu = static_cast<int>(other);
+									return 0;
+								}
+							}
 							if (!InsideBar(menu, a_l)) g_typing = false;   // a click elsewhere ends it and goes on to the game
 							break;
 						default: break;
@@ -394,10 +524,15 @@ namespace msearch
 							g_typing = true;
 							return 0;
 						}
-						if (a_m == WM_LBUTTONDOWN && InsideBar(menu, a_l)) {
-							g_typingMenu = static_cast<int>(menu);
-							g_typing = true;
-							return 0;
+						if (a_m == WM_LBUTTONDOWN) {
+							const auto other = !cont ? menus::Menu::kNone : menu == menus::Menu::kContainerYours ? menus::Menu::kContainerTheirs : menus::Menu::kContainerYours;
+							for (const auto m : { menu, other }) {
+								if (m != menus::Menu::kNone && MenuEnabled(m) && InsideBar(m, a_l)) {
+									g_typingMenu = static_cast<int>(m);
+									g_typing = true;
+									return 0;
+								}
+							}
 						}
 					}
 				} else if (g_typing.load()) {
@@ -466,10 +601,10 @@ namespace msearch
 	void FilterTick(menus::Menu a_menu, Clock::time_point a_now)
 	{
 		RegisterMenuHooks();
-		const bool supported = a_menu == menus::Menu::kMagic || a_menu == menus::Menu::kInventory;
-		// a menu that is not the open one forgets everything it held
-		for (int m = 1; m <= 2; ++m) {
-			if ((!supported || m != static_cast<int>(a_menu)) && g_filter[m].watching) g_filter[m].Reset();
+		// a menu that is not the open one forgets everything it held (in the container / barter menu both sides are open)
+		const auto context = menus::Active();
+		for (int m = 1; m <= 4; ++m) {
+			if (!Present(static_cast<menus::Menu>(m), context) && g_filter[m].watching) g_filter[m].Reset();
 		}
 		if (!cfg::Get().ownFilter || !reflect::Ok() || !MenuEnabled(a_menu)) return;
 		FilterState& S = g_filter[static_cast<int>(a_menu)];
@@ -477,13 +612,26 @@ namespace msearch
 		if (!reflect::Get(S.list)) {   // the list, found a couple of times a second until it is
 			if (a_now < S.nextLook) return;
 			S.nextLook = a_now + 500ms;
-			auto* menuW = menus::Widget(a_menu);
-			auto* list = menuW ? ui::FindInTree(menuW, a_menu == menus::Menu::kMagic ? "Magic_Spell_List" : "inv_cont_listview") : nullptr;
+			UE::UObject* list = nullptr;
+			if (IsSide(a_menu)) {
+				auto* content = container::SideContent(a_menu);
+				list = content ? ui::FindInTree(content, "inv_cont_listview") : nullptr;
+			} else {
+				auto* menuW = menus::Widget(a_menu);
+				list = menuW ? ui::FindInTree(menuW, a_menu == menus::Menu::kMagic ? "Magic_Spell_List" : "inv_cont_listview") : nullptr;
+			}
 			auto* view = list ? ListViewOf(list) : nullptr;
 			if (!view) return;
 			S.list = reflect::Hold(view);
 			S.watching = true;
 			logger::debug("own filter: watching the list of the {}", menuName);
+			if (IsSide(a_menu)) {   // what the container's rows are: their class and how their names read
+				const auto  items = ListItemsOf(view);
+				const char* route = "none";
+				const auto  first = items.empty() ? std::string() : ItemName(items.front(), a_menu, &route);
+				logger::info("own filter ({}): the list holds {} items; the first is {} named \"{}\" (read by {})", menuName, items.size(),
+					items.empty() ? std::string("n/a") : pe::Utf8(items.front()->GetClass()->GetFName().ToString()), first, route);
+			}
 		}
 		auto* list = reflect::Get(S.list);
 		if (!list) return;
@@ -563,7 +711,7 @@ namespace msearch
 	// still in the frame the game rebuilt it in, before anything is drawn. One cheap count when nothing changed.
 	static void FilterQuick(menus::Menu a_menu, const char* a_after)
 	{
-		if (a_menu != menus::Menu::kMagic && a_menu != menus::Menu::kInventory) return;
+		if (a_menu == menus::Menu::kNone) return;
 		FilterState& S = g_filter[static_cast<int>(a_menu)];
 		if (!S.active) return;
 		auto* list = reflect::Get(S.list);
@@ -576,6 +724,13 @@ namespace msearch
 		static bool s_in = false;   // our own calls into the list never come back here, but be sure
 		if (s_in || !a_obj || !cfg::Get().ownFilter) return;
 		auto* cls = a_obj->GetClass();
+		if (cls && cls == container::Class()) {   // the container / barter menu: both sides
+			s_in = true;
+			FilterQuick(menus::Menu::kContainerYours, pe::FunctionName(a_fn).c_str());
+			FilterQuick(menus::Menu::kContainerTheirs, pe::FunctionName(a_fn).c_str());
+			s_in = false;
+			return;
+		}
 		const auto menu = cls == menus::ClassOf(menus::Menu::kMagic) ? menus::Menu::kMagic : cls == menus::ClassOf(menus::Menu::kInventory) ? menus::Menu::kInventory : menus::Menu::kNone;
 		if (menu == menus::Menu::kNone) return;
 		s_in = true;
@@ -594,6 +749,13 @@ namespace msearch
 				logger::info("own filter: watching the {}'s calls to filter right after them", menus::Name(m));
 			}
 		}
+		static bool s_doneContainer = false;
+		if (!s_doneContainer) {
+			if (auto* cls = container::Class(); cls && pe::WatchPost(cls, &OnMenuPost)) {
+				s_doneContainer = true;
+				logger::info("own filter: watching the container / barter menu's calls to filter right after them");
+			}
+		}
 	}
 
 	void BarTick(menus::Menu a_menu, Clock::time_point a_now)
@@ -601,12 +763,12 @@ namespace msearch
 		if (!OwnBarOn() || !reflect::Ok()) return;
 		InstallWndProc();
 		if (!MenuEnabled(a_menu)) {
-			g_typing = false;
+			if (g_typingMenu.load() == static_cast<int>(a_menu)) g_typing = false;
+			if (IsSide(a_menu)) HideBar(a_menu);
 			return;
 		}
-		if (g_typing.load() && (g_typingMenu.load() != static_cast<int>(a_menu) || g_external.load())) g_typing = false;
-		BarWidgets& B = g_bar[static_cast<int>(a_menu)];
-		const bool have = reflect::Get(B.frame) && reflect::Get(B.label);
+BarWidgets& B = g_bar[static_cast<int>(a_menu)];
+const bool  have = reflect::Get(B.frame) && reflect::Get(B.label);
 		if (!have || a_now >= B.nextLook) {   // built, and looked at twice a second: it must still sit in the menu's canvas (a menu that was rebuilt or replaced does not take it along)
 			B.nextLook = a_now + 500ms;
 			auto* canvas = BarCanvasFor(a_menu, !have);
@@ -634,9 +796,37 @@ namespace msearch
 			next = now + 200ms;
 			if (!reflect::Ok()) reflect::SelfCheck();
 			menus::Tick();
+			container::Tick();
 		}
-		BarTick(a_menu, now);
-		FilterTick(a_menu, now);
+		const bool cont = a_menu == menus::Menu::kNone && container::Open();   // the container / barter menu: a bar and a list on each side
+		{   // which of its sides are on the screen: a plain container shows only its own list (nothing to give)
+			static auto nextShown = Clock::now();
+			if (!cont) {
+				g_sideShown[static_cast<int>(menus::Menu::kContainerYours)] = false;
+				g_sideShown[static_cast<int>(menus::Menu::kContainerTheirs)] = false;
+			} else if (now >= nextShown) {
+				nextShown = now + 100ms;
+				for (const auto side : { menus::Menu::kContainerYours, menus::Menu::kContainerTheirs }) {
+					const bool shown = SideShownNow(side);
+					if (shown != g_sideShown[static_cast<int>(side)].load()) logger::info("container menu: the {} is {}", menus::Name(side), shown ? "on the screen" : "not on the screen");
+					g_sideShown[static_cast<int>(side)] = shown;
+				}
+			}
+		}
+if (g_typing.load()) {
+			const auto typed = static_cast<menus::Menu>(g_typingMenu.load());
+			if ((typed != a_menu && !(cont && IsSide(typed))) || g_external.load()) g_typing = false;
+		}
+		if (cont) {
+			for (const auto side : { menus::Menu::kContainerYours, menus::Menu::kContainerTheirs }) {
+				BarTick(side, now);
+				FilterTick(side, now);
+			}
+		} else {
+			BarTick(a_menu, now);
+			FilterTick(a_menu, now);
+		}
+		probe::Tick();
 	}
 
 	void SetGameThread(DWORD a_id) { g_gameThread = a_id; }
@@ -651,8 +841,21 @@ namespace msearch
 		}
 		SetQuery(a_menu, s);
 	}
-	void SetExternalInput(bool a_open)
+	bool PanelOnLeft(menus::Menu a_menu)
 	{
+		const auto& B = g_bar[static_cast<int>(a_menu) % 5];
+		if (IsSide(a_menu) && B.w > 0) return B.x + B.w * 0.5 < g_canvasW * 0.5;
+		return a_menu != menus::Menu::kContainerTheirs;
+	}
+
+	int Context()
+{
+		const auto m = menus::Active();
+		if (m != menus::Menu::kNone) return static_cast<int>(m);
+		return !g_conflict && cfg::Get().container && container::Open() ? 3 : 0;
+	}
+	void SetExternalInput(bool a_open)
+{
 		g_external = a_open;
 		if (a_open) g_typing = false;
 	}

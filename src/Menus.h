@@ -14,7 +14,9 @@
 
 namespace menus
 {
-	enum class Menu { kNone, kInventory, kMagic };
+	// kContainerYours / kContainerTheirs are the two sides of the container / barter menu: only the Menu Search plugin uses them (it asks
+	// its own container module); Active() never returns them, so the wheel's rules see that menu as kNone, as before.
+	enum class Menu { kNone, kInventory, kMagic, kContainerYours, kContainerTheirs };
 
 	void Tick();       // from the plugin's lazy thread: finds the classes once they are loaded and watches them
 	Menu Active();     // game thread or any thread

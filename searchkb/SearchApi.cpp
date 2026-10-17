@@ -11,6 +11,8 @@ namespace search
 			int (*getText)(int, char*, int) = nullptr;
 			void (*setText)(int, const char*) = nullptr;
 			void (*external)(bool) = nullptr;
+			int (*context)() = nullptr;   // version 2
+			bool (*panelOnLeft)(int) = nullptr;   // version 2
 		};
 		Api g_api;
 
@@ -29,11 +31,18 @@ namespace search
 			a.getText = reinterpret_cast<int (*)(int, char*, int)>(GetProcAddress(m, "OblivionMenuSearch_GetText"));
 			a.setText = reinterpret_cast<void (*)(int, const char*)>(GetProcAddress(m, "OblivionMenuSearch_SetText"));
 			a.external = reinterpret_cast<void (*)(bool)>(GetProcAddress(m, "OblivionMenuSearch_SetExternalInput"));
-			if (!a.version || !a.enabled || !a.getText || !a.setText || !a.external || a.version() != 1) {
+			a.context = reinterpret_cast<int (*)()>(GetProcAddress(m, "OblivionMenuSearch_ActiveContext"));
+			const int ver = a.version ? a.version() : 0;
+			a.panelOnLeft = reinterpret_cast<bool (*)(int)>(GetProcAddress(m, "OblivionMenuSearch_PanelOnLeft"));
+			if (ver < 2) {
+				a.context = nullptr;
+				a.panelOnLeft = nullptr;
+			}   // version 1: the Inventory and the Magic menu only
+			if (!a.version || !a.enabled || !a.getText || !a.setText || !a.external || ver < 1 || ver > 2) {
 				static bool s_said = false;
 				if (!s_said) {
 					s_said = true;
-					logger::warn("search: OblivionMenuSearch.dll is loaded but its interface is not the one this keyboard knows (version 1) - the keyboard stays off");
+					logger::warn("search: OblivionMenuSearch.dll is loaded but its interface is not the one this keyboard knows(version 1 or 2) - the keyboard stays off");
 				}
 				return false;
 			}
@@ -66,8 +75,23 @@ namespace search
 		if (Resolve()) g_api.setText(static_cast<int>(a_menu), a_text.c_str());
 	}
 
-	void SetExternalInput(bool a_open)
+	bool PanelOnLeft(menus::Menu a_menu)
 	{
+		if (Resolve() && g_api.panelOnLeft) return g_api.panelOnLeft(static_cast<int>(a_menu));
+		return a_menu != menus::Menu::kContainerTheirs;
+	}
+
+	menus::Menu Context()
+{
+		if (Resolve() && g_api.context) {
+			const int c = g_api.context();
+			return c == 3 ? menus::Menu::kContainerYours : c == 1 ? menus::Menu::kInventory : c == 2 ? menus::Menu::kMagic : menus::Menu::kNone;
+		}
+		return menus::Active();
+	}
+
+	void SetExternalInput(bool a_open)
+{
 		if (Resolve()) g_api.external(a_open);
 	}
 }

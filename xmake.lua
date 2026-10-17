@@ -1,4 +1,4 @@
--- Oblivion Menu Search and Oblivion Search Keyboard: OBSE64 plugins for The Elder Scrolls IV: Oblivion Remastered. GPL-3.0-or-later.
+-- Oblivion Menu Search and Menu Search - Controller Keyboard: OBSE64 plugins for The Elder Scrolls IV: Oblivion Remastered. GPL-3.0-or-later.
 -- /d1trimfile strips the project folder from __FILE__ and std::source_location (no build-machine paths in the DLLs); /PDBALTPATH keeps only the
 -- PDB's file name in the debug directory. Both are set BEFORE includes() so CommonLibOB64's own library target gets them too.
 add_cxflags({"/d1trimfile:$(projectdir)"}, {force = true, expand = false})
@@ -14,11 +14,11 @@ set_warnings("allextra")
 add_rules("mode.debug", "mode.releasedbg")
 
 target("OblivionMenuSearch")
-    set_version("1.0.0")
+    set_version("1.1.0")
     add_rules("commonlibob64.plugin", {
         name = "OblivionMenuSearch",
         author = "cfa911",
-        description = "Search bar, typing and list filter for the Inventory and Magic menus (Oblivion Remastered)"
+        description = "Search bar, typing and list filter for the Inventory, Magic and container / barter menus (Oblivion Remastered)"
     })
     add_syslinks("user32")
     add_files("menusearch/*.cpp", "src/Ui.cpp", "src/Reflect.cpp", "src/PEHook.cpp", "src/Menus.cpp", "src/UiText.cpp")
@@ -26,9 +26,9 @@ target("OblivionMenuSearch")
     add_includedirs("src", "menusearch")
     set_pcxxheader("src/pch.h")
 
--- Oblivion Search Keyboard: a controller on-screen keyboard for the search of the Oblivion Menu Search plugin, which it needs.
+-- Menu Search - Controller Keyboard: a controller on-screen keyboard for the search of the Oblivion Menu Search plugin, which it needs.
 target("OblivionSearchKeyboard")
-    set_version("1.0.0")
+    set_version("1.1.0")
     add_rules("commonlibob64.plugin", {
         name = "OblivionSearchKeyboard",
         author = "cfa911",

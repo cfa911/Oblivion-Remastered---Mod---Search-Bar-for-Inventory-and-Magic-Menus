@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "Menus.h"
 #include "Reflect.h"
+#include "SearchApi.h"
 #include "SearchKeyboard.h"
 
 #include <Xinput.h>   // types and constants only - nothing is linked or loaded
@@ -32,6 +33,9 @@ namespace hook
 		bool              g_fired = false;   // ... and the keyboard opened for it
 		Clock::time_point g_at{};
 		int               g_pulse = 0;       // reads left of a replayed tap
+		WORD              g_btn = 0;         // the button being timed (D-pad right; in the container / barter menu also D-pad left)
+		menus::Menu       g_side = menus::Menu::kNone;   // the menu (or the container menu's side) it opens the keyboard for
+		WORD              g_pulseBtn = 0;    // the button of the replayed tap
 
 		// the engine lookups run here, on the game thread, about every 200 ms (never from a thread of our own: a start-up
 		// crashed in UObjectArray that way, 2026-09-29)
@@ -51,7 +55,7 @@ namespace hook
 			const WORD pressed = raw & static_cast<WORD>(~g_prevRaw);
 			g_prevRaw = raw;
 			const auto now = Clock::now();
-			const auto menu = menus::Active();
+			const auto menu = search::Context();   // the Inventory, the Magic menu, or the container / barter menu (as kContainerYours)
 			const auto& c = cfg::Get();
 
 			if (menu != g_prevMenu) {   // a menu opened or closed (or the tab changed): the keyboard goes with it, a half-timed hold is forgotten
@@ -77,29 +81,39 @@ namespace hook
 
 			// A hold on the button opens the keyboard; a tap is replayed after the release, so the game's own use of the button
 			// (stepping the sort) is kept.
-			if (c.enabled && c.button && menu != menus::Menu::kNone) {
-				const WORD btn = static_cast<WORD>(c.button);
-				if (pressed & btn) {
-					g_fired = false;
-					g_at = now;
-					g_held = osk::CanOpen(menu);   // the keyboard cannot open here (no Menu Search plugin, or its search is off in this menu): the game keeps the button
-				}
-				if (g_held) {
-					out &= static_cast<WORD>(~btn);
-					if (!g_fired && (raw & btn) && now - g_at >= std::chrono::milliseconds(c.holdMs)) {
-						g_fired = true;
-						osk::Open(menu, raw);
+				if (c.enabled && menu != menus::Menu::kNone) {
+					const bool  container = menu == menus::Menu::kContainerYours;
+					const WORD  right = static_cast<WORD>(c.button), left = static_cast<WORD>(container ? c.buttonLeft : 0);
+					if ((right && (pressed & right)) || (left && (pressed & left))) {
+						g_btn = left && (pressed & left) ? left : right;
+						g_side = menu;
+						if (container) {   // right = your side, left = the other; a plain container has only its own list, which either button opens
+							const bool yoursOk = osk::CanOpen(menus::Menu::kContainerYours), theirsOk = osk::CanOpen(menus::Menu::kContainerTheirs);
+							g_side = yoursOk && theirsOk ? (g_btn == left ? menus::Menu::kContainerTheirs : menus::Menu::kContainerYours) : yoursOk ? menus::Menu::kContainerYours : menus::Menu::kContainerTheirs;
+						}
+						g_fired = false;
+						g_at = now;
+						g_held = osk::CanOpen(g_side);   // the keyboard cannot open here (no Menu Search plugin, or its search is off in this menu): the game keeps the button
 					}
-					if (!(raw & btn)) {
-						if (!g_fired) g_pulse = kPulseReads;   // a tap: the game gets it now
-						g_held = false;
+					if (g_held) {
+						out &= static_cast<WORD>(~g_btn);
+						if (!g_fired && (raw & g_btn) && now - g_at >= std::chrono::milliseconds(c.holdMs)) {
+							g_fired = true;
+							osk::Open(g_side, raw);
+						}
+						if (!(raw & g_btn)) {
+							if (!g_fired) {   // a tap: the game gets it now
+								g_pulse = kPulseReads;
+								g_pulseBtn = g_btn;
+							}
+							g_held = false;
+						}
 					}
 				}
-			}
-			if (g_pulse > 0) {
-				out |= static_cast<WORD>(c.button);
-				--g_pulse;
-			}
+				if (g_pulse > 0) {
+					out |= g_pulseBtn;
+					--g_pulse;
+				}
 			a_pad.wButtons = out;
 		}
 

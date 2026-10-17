@@ -57,6 +57,7 @@ namespace osk
 		reflect::Handle                                g_root, g_header;
 		std::vector<reflect::Handle>                   g_keyImg;
 		int                                            g_builds = 0;
+		bool                                           g_mirror = false, g_builtMirror = false;   // the keyboard on the left of the screen, for the container menu's other side
 		ULONGLONG                                      g_lastBuild = 0;
 
 		bool                g_open = false;
@@ -101,8 +102,13 @@ namespace osk
 		Layout MakeLayout()
 		{
 			const auto&  s = cfg::Get();
-			const double L = s.leftPercent / 100.0, T = s.topPercent / 100.0, R = s.rightPercent / 100.0, B = s.bottomPercent / 100.0;
-			const double W = R - L, H = B - T;
+			double       L = s.leftPercent / 100.0, T = s.topPercent / 100.0, R = s.rightPercent / 100.0, B = s.bottomPercent / 100.0;
+						if (g_mirror) {   // the same area, mirrored: it never covers the list that is being searched
+							const double l2 = 1.0 - R, r2 = 1.0 - L;
+							L = l2;
+							R = r2;
+						}
+const double W = R - L, H = B - T;
 			const double padX = W * 0.03;
 			const double colW = (W - 2 * padX) / kCols;
 			const double rowH = std::min(H / (kRows + 2 + 0.7), colW * Aspect() * 1.25);   // header, the key rows, the hint; keys a little taller than wide
@@ -285,7 +291,8 @@ namespace osk
 			g_root = reflect::Hold(root);
 			g_header = reflect::Hold(header);
 			g_keyImg = std::move(imgs);
-			logger::info("search keyboard: built (build {}), panel {:.0f}%,{:.0f}% to {:.0f}%,{:.0f}% of the screen", g_builds, layout.panel.x0 * 100, layout.panel.y0 * 100,
+			g_builtMirror = g_mirror;
+logger::info("search keyboard: built (build {}), panel {:.0f}%,{:.0f}% to {:.0f}%,{:.0f}% of the screen", g_builds, layout.panel.x0 * 100, layout.panel.y0 * 100,
 				layout.panel.x1 * 100, layout.panel.y1 * 100);
 			return true;
 		}
@@ -410,7 +417,18 @@ namespace osk
 	bool Open(menus::Menu a_menu, std::uint16_t a_held)
 	{
 		if (g_open) return true;
-		if (!search::Enabled(a_menu) || !EnsureBuilt()) return false;
+		if (!search::Enabled(a_menu)) return false;
+		const bool mirror = (a_menu == menus::Menu::kContainerYours || a_menu == menus::Menu::kContainerTheirs) && !search::PanelOnLeft(a_menu);   // a list on the right of the screen: the keyboard goes on the left
+		if (mirror != g_builtMirror && reflect::Get(g_root)) {   // built on the other side of the screen: built again there
+			ui::Call rm(reflect::Get(g_root), L"RemoveFromParent");
+			rm.Run();
+			g_root = {};
+			g_header = {};
+			g_keyImg.clear();
+			g_lastBuild = 0;
+		}
+		g_mirror = mirror;
+		if (!EnsureBuilt()) return false;
 		g_text = search::GetText(a_menu);
 		search::SetExternalInput(true);   // the search bar stops taking typed keys while the keyboard has the text
 		if (g_text.size() > kMaxText) g_text.resize(kMaxText);
@@ -455,7 +473,8 @@ namespace osk
 		g_prevEff = raw;
 
 		// the menu went away
-		if (menus::Active() != g_menu) {
+		const auto context = search::Context();   // the container / barter menu reads as kContainerYours, whichever side the keyboard is on
+		if (context != g_menu && !(context == menus::Menu::kContainerYours && g_menu == menus::Menu::kContainerTheirs)) {
 			Close("menu changed");
 			return;
 		}

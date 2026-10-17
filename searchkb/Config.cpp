@@ -33,6 +33,7 @@ namespace cfg
 			v.logLevel = ReadInt(ini, L"Log", L"uLogLevel", v.logLevel, 0, 4);
 			v.enabled = ReadInt(ini, L"SearchKeyboard", L"bEnabled", v.enabled ? 1 : 0, 0, 1) != 0;
 			v.button = ReadInt(ini, L"SearchKeyboard", L"uButton", v.button, 0, 0xFFFF);
+			v.buttonLeft = ReadInt(ini, L"SearchKeyboard", L"uButtonLeft", v.buttonLeft, 0, 0xFFFF);
 			v.holdMs = ReadInt(ini, L"SearchKeyboard", L"uHoldMs", v.holdMs, 150, 2000);
 			v.leftPercent = ReadInt(ini, L"SearchKeyboard", L"uLeftPercent", v.leftPercent, 0, 90);
 			v.topPercent = ReadInt(ini, L"SearchKeyboard", L"uTopPercent", v.topPercent, 0, 90);
