@@ -37,12 +37,13 @@ namespace cfg
 
 	void Load()
 	{
-		const auto ini = ThisModule().parent_path() / L"OblivionMenuSearch.ini";
+		const auto ini = ThisModule().parent_path() / L"MenuSearch.ini";
 		Values     v;
 		if (std::filesystem::exists(ini)) {
 			v.logLevel = ReadInt(ini, L"Log", L"uLogLevel", v.logLevel, 0, 4);
 			v.inventory = ReadInt(ini, L"Search", L"bInventory", v.inventory ? 1 : 0, 0, 1) != 0;
 			v.magic = ReadInt(ini, L"Search", L"bMagic", v.magic ? 1 : 0, 0, 1) != 0;
+			v.quests = ReadInt(ini, L"Search", L"bQuests", v.quests ? 1 : 0, 0, 1) != 0;
 			v.container = ReadInt(ini, L"Search", L"bContainer", v.container ? 1 : 0, 0, 1) != 0;
 			v.barFontSize = ReadInt(ini, L"Bar", L"uFontSize", v.barFontSize, 8, 60);
 			v.barX = ReadDouble(ini, L"Bar", L"uX", v.barX, 0, 3000);
@@ -61,20 +62,20 @@ namespace cfg
 					p.h = ReadDouble(ini, a_section, L"uHeight", p.h, 10, 400);
 					return p;
 				};
-				v.inventoryBar = place(L"Inventory", { v.barX, v.barY + v.barYInventory, v.barW, v.barH }, false);
-				v.magicBar = place(L"Magic", { v.barX, v.barY + v.barYMagic, v.barW, v.barH }, false);
+				v.inventoryBar = place(L"Inventory", { v.barX + 2, v.barY + v.barYInventory, v.barW - 2, v.barH }, false);   // 2 off the left edge
+				v.magicBar = place(L"Magic", { v.barX + 3, v.barY + v.barYMagic, v.barW - 3, v.barH }, false);   // 3 off the left edge
 				v.yoursBar = place(L"ContainerYours", v.yoursBar, true);
 				v.theirsBar = place(L"ContainerTheirs", v.theirsBar, true);
 				v.takeBar = place(L"ContainerTake", v.takeBar, true);
+				v.questBar = place(L"Quest", v.magicBar, false);   // the Magic menu's place (as it is set above) unless [Quest] says otherwise
 			}
 			v.ownFilter = ReadInt(ini, L"Filter", L"bEnabled", v.ownFilter ? 1 : 0, 0, 1) != 0;
-			v.probe = ReadInt(ini, L"Debug", L"bProbe", v.probe ? 1 : 0, 0, 1) != 0;
-			logger::info("config: {} read", ini.string());
+logger::info("config: {} read", ini.string());
 		} else {
 			logger::warn("config: {} not found - compiled defaults in use", ini.string());
 		}
 		g_values = v;
-		logger::info("config: search in the Inventory {}, in the Magic menu {}, in the container / barter menu {}, filter {}", v.inventory ? "on" : "off", v.magic ? "on" : "off", v.container ? "on" : "off", v.ownFilter ? "on" : "off");
+		logger::info("config: search in the Inventory {}, in the Magic menu {},in the container / barter menu {}, in the quests tab {}, filter {}", v.inventory ? "on" : "off", v.magic ? "on" : "off", v.container ? "on" : "off", v.quests ? "on" : "off", v.ownFilter ? "on" : "off");
 	}
 
 	std::filesystem::path PluginFolder()

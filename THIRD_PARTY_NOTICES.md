@@ -1,6 +1,6 @@
 # Third-party components and their notices
 
-Oblivion Menu Search and Menu Search - Controller Keyboard are GPL-3.0-or-later (`LICENSE`, `NOTICE.md`). The components below are linked into
+Menu Search and Menu Search - Controller Keyboard are GPL-3.0-or-later (`LICENSE`, `NOTICE.md`). The components below are linked into
 the DLLs; each is under a GPL-compatible licence and its notice is reproduced as that licence requires.
 
 ## CommonLibOB64 and commonlib-shared - GPL-3.0

@@ -23,17 +23,22 @@ namespace search
 			const ULONGLONG now = GetTickCount64();
 			if (now < s_next) return false;
 			s_next = now + 2000;   // looked for again every two seconds until it is there
-			HMODULE m = GetModuleHandleW(L"OblivionMenuSearch.dll");
+			const char* prefix = "MenuSearch_";
+			HMODULE     m = GetModuleHandleW(L"MenuSearch.dll");
+			if (!m) {   // Oblivion Menu Search 1.x, the plugin under its old file name
+				m = GetModuleHandleW(L"OblivionMenuSearch.dll");
+				prefix = "OblivionMenuSearch_";
+			}
 			if (!m) return false;
 			Api a;
-			a.version = reinterpret_cast<int (*)()>(GetProcAddress(m, "OblivionMenuSearch_ApiVersion"));
-			a.enabled = reinterpret_cast<bool (*)(int)>(GetProcAddress(m, "OblivionMenuSearch_Enabled"));
-			a.getText = reinterpret_cast<int (*)(int, char*, int)>(GetProcAddress(m, "OblivionMenuSearch_GetText"));
-			a.setText = reinterpret_cast<void (*)(int, const char*)>(GetProcAddress(m, "OblivionMenuSearch_SetText"));
-			a.external = reinterpret_cast<void (*)(bool)>(GetProcAddress(m, "OblivionMenuSearch_SetExternalInput"));
-			a.context = reinterpret_cast<int (*)()>(GetProcAddress(m, "OblivionMenuSearch_ActiveContext"));
+			a.version = reinterpret_cast<int (*)()>(GetProcAddress(m, (std::string(prefix) + "ApiVersion").c_str()));
+			a.enabled = reinterpret_cast<bool (*)(int)>(GetProcAddress(m, (std::string(prefix) + "Enabled").c_str()));
+			a.getText = reinterpret_cast<int (*)(int, char*, int)>(GetProcAddress(m, (std::string(prefix) + "GetText").c_str()));
+			a.setText = reinterpret_cast<void (*)(int, const char*)>(GetProcAddress(m, (std::string(prefix) + "SetText").c_str()));
+			a.external = reinterpret_cast<void (*)(bool)>(GetProcAddress(m, (std::string(prefix) + "SetExternalInput").c_str()));
+			a.context = reinterpret_cast<int (*)()>(GetProcAddress(m, (std::string(prefix) + "ActiveContext").c_str()));
 			const int ver = a.version ? a.version() : 0;
-			a.panelOnLeft = reinterpret_cast<bool (*)(int)>(GetProcAddress(m, "OblivionMenuSearch_PanelOnLeft"));
+			a.panelOnLeft = reinterpret_cast<bool (*)(int)>(GetProcAddress(m, (std::string(prefix) + "PanelOnLeft").c_str()));
 			if (ver < 2) {
 				a.context = nullptr;
 				a.panelOnLeft = nullptr;
@@ -42,7 +47,7 @@ namespace search
 				static bool s_said = false;
 				if (!s_said) {
 					s_said = true;
-					logger::warn("search: OblivionMenuSearch.dll is loaded but its interface is not the one this keyboard knows(version 1 or 2) - the keyboard stays off");
+					logger::warn("search: Menu Search is loaded but its interface is not the one this keyboard knows(version 1 or 2) - the keyboard stays off");
 				}
 				return false;
 			}
@@ -85,7 +90,7 @@ namespace search
 {
 		if (Resolve() && g_api.context) {
 			const int c = g_api.context();
-			return c == 3 ? menus::Menu::kContainerYours : c == 1 ? menus::Menu::kInventory : c == 2 ? menus::Menu::kMagic : menus::Menu::kNone;
+			return c == 3 ? menus::Menu::kContainerYours : c == 1 ? menus::Menu::kInventory : c == 2 ? menus::Menu::kMagic : c == 5 ? menus::Menu::kQuests : menus::Menu::kNone;
 		}
 		return menus::Active();
 	}

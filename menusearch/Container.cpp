@@ -35,7 +35,7 @@ namespace container
 			}
 			g_active.store(activated);
 			if (activated) g_widget = reflect::Hold(a_obj);
-			logger::info("container menu: {}", activated ? "activated" : "deactivated");
+			logger::debug("container menu: {}", activated ? "activated" : "deactivated");
 		}
 	}
 
@@ -53,7 +53,7 @@ namespace container
 				break;
 			}
 		}
-		logger::info("container menu: watching its activation ({})", g_active.load() ? "open now" : "closed");
+		logger::debug("container menu: watching its activation ({})", g_active.load() ? "open now" : "closed");
 	}
 
 	bool Open()

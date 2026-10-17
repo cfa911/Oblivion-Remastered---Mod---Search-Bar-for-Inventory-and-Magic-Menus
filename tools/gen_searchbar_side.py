@@ -1,18 +1,20 @@
-"""Generates SearchBarYours.png (green) and SearchBarTheirs.png (red): the container / barter menu's search bars. Like SearchBar.png - a worn, slightly jagged
+"""Generates SearchBarYours.png (green) and SearchBarTheirs.png (red): the container / barter menu's search bars, and SearchBar.png (black, 972 x 72): the others. Like SearchBar.png - a worn, slightly jagged
 panel with a fine woven grain - but tinted, and with a golden band inside the worn edge so the bar reads against the dark menu frame.
-Usage: gen_searchbar_side.py <out.png> green|red   (standard library only)"""
+Usage: gen_searchbar_side.py <out.png> green|red|black [width height]   (standard library only)"""
 import math, random, struct, sys, zlib
 
-W, H = 1652, 74          # twice the bar's 826 x 37
 out_path = sys.argv[1]
 kind = sys.argv[2]
-random.seed(31 if kind == 'green' else 47)
+W, H = (int(sys.argv[3]), int(sys.argv[4])) if len(sys.argv) >= 5 else (1652, 74)   # twice the bar's size: 826 x 37 for the container's bars, 486 x 36 (972 x 72) for the others
+random.seed({'green': 31, 'red': 47}.get(kind, 11))
 
 # base tint of the panel (r, g, b multipliers of the shade) and the gold of the band
 if kind == 'green':
     TINT = (0.55, 1.55, 0.62)
-else:
+elif kind == 'red':
     TINT = (1.75, 0.50, 0.50)
+else:   # black: the Inventory, Magic and quests bars
+    TINT = (1.02, 0.99, 0.95)
 GOLD = (206, 164, 74)
 
 

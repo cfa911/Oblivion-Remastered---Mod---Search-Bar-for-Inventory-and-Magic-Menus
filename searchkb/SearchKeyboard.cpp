@@ -170,7 +170,7 @@ const double W = R - L, H = B - T;
 			static bool            s_failed = false;
 			if (auto* t = reflect::Get(s_tex)) return t;
 			if (s_failed) return nullptr;
-			const auto path = cfg::PluginFolder() / L"OblivionSearchKeyboard" / L"Parchment.png";
+			const auto path = cfg::PluginFolder() / L"MenuSearchControllerKeyboard" / L"Parchment.png";
 			static auto* lib = ui::Class(L"/Script/Engine.KismetRenderingLibrary");
 			ui::Call     c(lib ? lib->GetDefaultObject(false) : nullptr, L"ImportFileAsTexture2D");
 			void*        file = c.At("Filename");
@@ -187,7 +187,7 @@ const double W = R - L, H = B - T;
 				return nullptr;
 			}
 			s_tex = reflect::Hold(tex);
-			logger::info("search keyboard: the parchment is loaded from {}", path.filename().string());
+			logger::debug("search keyboard: the parchment is loaded from {}", path.filename().string());
 			return tex;
 		}
 
@@ -200,7 +200,7 @@ const double W = R - L, H = B - T;
 			const std::wstring n = std::to_wstring(++g_builds);
 			auto*              canvas = root ? ui::RootCanvas(root, (L"IwmOskCanvas" + n).c_str()) : nullptr;
 			if (!canvas) {
-				logger::info("search keyboard: the widget could not be created yet (build {})", g_builds);
+				logger::debug("search keyboard: the widget could not be created yet (build {})", g_builds);
 				return false;
 			}
 			const auto   layout = MakeLayout();
@@ -227,7 +227,7 @@ const double W = R - L, H = B - T;
 			// the labels go over every image (a later child draws above an earlier one)
 			for (std::size_t i = 0; i < keys.size(); ++i) {
 				if (!AddLabel(canvas, L"IwmOskText" + n + L"_" + std::to_wstring(i), layout.key[i], scale * (keys[i].kind == Kind::kChar ? 36.0 : 28.0), keys[i].label)) {
-					logger::info("search keyboard: the game's text prefab is not loaded yet");
+					logger::debug("search keyboard: the game's text prefab is not loaded yet");
 					return false;
 				}
 			}
@@ -264,7 +264,7 @@ const double W = R - L, H = B - T;
 						static bool        s_said = false;
 						if (!s_said) {
 							s_said = true;
-							logger::info("search keyboard: the game's button icons {}", tex ? "are loaded" : "could NOT be loaded - drawn discs are used");
+							logger::debug("search keyboard: the game's button icons {}", tex ? "are loaded" : "could NOT be loaded - drawn discs are used");
 						}
 						if (tex) {
 							auto* icon = AddImage(canvas, L"IwmOskGlyph" + id, disc, nullptr, kGlyphEdge, 0.0f);
@@ -292,7 +292,7 @@ const double W = R - L, H = B - T;
 			g_header = reflect::Hold(header);
 			g_keyImg = std::move(imgs);
 			g_builtMirror = g_mirror;
-logger::info("search keyboard: built (build {}), panel {:.0f}%,{:.0f}% to {:.0f}%,{:.0f}% of the screen", g_builds, layout.panel.x0 * 100, layout.panel.y0 * 100,
+logger::debug("search keyboard: built (build {}), panel {:.0f}%,{:.0f}% to {:.0f}%,{:.0f}% of the screen", g_builds, layout.panel.x0 * 100, layout.panel.y0 * 100,
 				layout.panel.x1 * 100, layout.panel.y1 * 100);
 			return true;
 		}
@@ -392,7 +392,8 @@ logger::info("search keyboard: built (build {}), panel {:.0f}%,{:.0f}% to {:.0f}
 			case Kind::kChar:
 			case Kind::kSpace:
 				if (g_text.size() < kMaxText) {
-					g_text.push_back(k.ch);
+					// the first letter of a search is a capital (the search itself ignores the case)
+					g_text.push_back(g_text.empty() && k.kind == Kind::kChar ? static_cast<char>(std::toupper(static_cast<unsigned char>(k.ch))) : k.ch);
 					Push();
 				}
 				break;

@@ -16,10 +16,11 @@ namespace menus
 {
 	// kContainerYours / kContainerTheirs are the two sides of the container / barter menu: only the Menu Search plugin uses them (it asks
 	// its own container module); Active() never returns them, so the wheel's rules see that menu as kNone, as before.
-	enum class Menu { kNone, kInventory, kMagic, kContainerYours, kContainerTheirs };
+	enum class Menu { kNone, kInventory, kMagic, kContainerYours, kContainerTheirs, kQuests };   // kQuests: the quests tab, Menu Search only
 
 	void Tick();       // from the plugin's lazy thread: finds the classes once they are loaded and watches them
 	Menu Active();     // game thread or any thread
+	std::uint64_t MsSinceClosed();   // milliseconds since the Inventory or the Magic menu last deactivated (a huge number if never): the game still reports menu mode while a menu closes
 	bool AnyOpen();    // the game is in menu mode (any menu: also containers and barter, which Active() reports as kNone)
 	const char* Name(Menu a_menu);
 	UE::UClass* ClassOf(Menu a_menu);   // the menu widget's class, once it has loaded (nullptr before)

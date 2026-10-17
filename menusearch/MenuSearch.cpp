@@ -3,7 +3,7 @@
 #include "Config.h"
 #include "Container.h"
 #include "PEHook.h"
-#include "Probe.h"
+#include "Quests.h"
 #include "Reflect.h"
 #include "Ui.h"
 #include "UiText.h"
@@ -23,7 +23,8 @@ namespace msearch
 		// the text of the search bar (one per menu, ASCII), and the flags the window procedure shares with the game thread
 		bool                g_conflict = false;   // another search mod is installed: everything here stands down
 		std::mutex           g_qMutex;             // the window procedure may run on another thread than the game's
-		std::string          g_queries[5];   // by menu: kInventory, kMagic, kContainerYours, kContainerTheirs
+		std::string          g_queries[6];
+				bool                 g_selAll[6] = {};   // Ctrl+A: the whole text is selected (the next key replaces it, Backspace / Delete clears it) - under g_qMutex   // by menu: kInventory, kMagic, kContainerYours, kContainerTheirs
 		std::atomic<bool>    g_typing{ false };
 		std::atomic<int>     g_typingMenu{ 0 };
 		std::atomic<bool>    g_sideShown[5];   // the container / barter menu's sides that are on the screen now (a plain container shows only its own)
@@ -35,24 +36,29 @@ namespace msearch
 		bool MenuEnabled(menus::Menu a_menu)
 		{
 			if (g_conflict) return false;
-			return (a_menu == menus::Menu::kInventory && cfg::Get().inventory) || (a_menu == menus::Menu::kMagic && cfg::Get().magic)|| (IsSide(a_menu) && cfg::Get().container && g_sideShown[static_cast<int>(a_menu)].load());
+			return (a_menu == menus::Menu::kInventory && cfg::Get().inventory) || (a_menu == menus::Menu::kMagic && cfg::Get().magic)|| (IsSide(a_menu) && cfg::Get().container && g_sideShown[static_cast<int>(a_menu)].load()) || (a_menu == menus::Menu::kQuests && cfg::Get().quests);
 		}
-		bool OwnBarOn() { return !g_conflict && (cfg::Get().inventory || cfg::Get().magic || cfg::Get().container); }
+		bool OwnBarOn() { return !g_conflict && (cfg::Get().inventory || cfg::Get().magic || cfg::Get().container || cfg::Get().quests); }
 		// a menu is present when it is the open one; in the container / barter menu both sides are
 		bool Present(menus::Menu a_menu, menus::Menu a_active)
 		{
-			return a_menu == a_active || (IsSide(a_menu) && a_active == menus::Menu::kNone && container::Open());
+			return a_menu == a_active || (IsSide(a_menu) && a_active == menus::Menu::kNone && container::Open()) || (a_menu == menus::Menu::kQuests && a_active == menus::Menu::kNone && quests::Open());
 		}
-		UE::UObject* MenuWidget(menus::Menu a_menu) { return IsSide(a_menu) ? container::Widget() : menus::Widget(a_menu); }
+		UE::UObject* MenuWidget(menus::Menu a_menu) { return IsSide(a_menu) ? container::Widget() : a_menu == menus::Menu::kQuests ? quests::Page() : menus::Widget(a_menu); }
 		std::string QueryOf(menus::Menu a_menu)
 		{
 			std::scoped_lock l(g_qMutex);
-			return g_queries[static_cast<int>(a_menu) % 5];
+			return g_queries[static_cast<int>(a_menu) % 6];
 		}
-		void SetQuery(menus::Menu a_menu, const std::string& a_text)
-		{
+		bool SelAllOf(menus::Menu a_menu)
+				{
+					std::scoped_lock l(g_qMutex);
+					return g_selAll[static_cast<int>(a_menu) % 6];
+				}
+				void SetQuery(menus::Menu a_menu, const std::string& a_text)
+{
 			std::scoped_lock l(g_qMutex);
-			g_queries[static_cast<int>(a_menu) % 5] = a_text;
+			g_queries[static_cast<int>(a_menu) % 6] = a_text;
 		}
 
 		// the user widget (the menu) a widget sits in
@@ -110,8 +116,67 @@ namespace msearch
 		}
 
 		// a list item's name: an FText-returning accessor if it has one, else the Properties struct's Name (as the row widgets carry it)
-		std::string ItemName(UE::UObject* a_item, menus::Menu a_menu, const char** a_route = nullptr)
+		// a name for a row of a kind we do not know the properties of (the quests tab): a name accessor if it has one, else the item's own text properties
+		// (the ones called ...Name... or ...Title... first); the class and its text properties are logged once
+		std::string GenericItemName(UE::UObject* a_item, const char** a_route)
 		{
+			static bool s_logged = false;
+			std::vector<std::pair<std::string, std::string>> texts;   // property name, its text
+			{   // the row's GetProperties() struct (LegacyMapMenuQuestProperties): its text properties
+				static auto* props = reinterpret_cast<UE::UStruct*>(UE::StaticFindObject<UE::UObject>(nullptr, nullptr, L"/Script/Altar.LegacyMapMenuQuestProperties"));
+				static bool  s_said = false;
+				ui::Call     g(a_item, L"GetProperties");
+				void*        ret = g && props ? g.At("ReturnValue") : nullptr;
+				if (!s_said) {
+					s_said = true;
+					logger::debug("own filter (quests): GetProperties {}, the struct {}, its size {} / the call's {}", g ? "exists" : "is missing", props ? "is there" : "is missing", props ? props->propertiesSize : -1, g && props ? g.Size("ReturnValue") : -1);
+					if (props) {
+						for (const auto& [name, off] : reflect::Fields(props)) logger::debug("own filter (quests):   {}.{} @0x{:X} size {}", "LegacyMapMenuQuestProperties", name, off, ui::SizeOf(props, name));
+					}
+				}
+				if (ret && g.Size("ReturnValue") == props->propertiesSize && g.Run()) {
+					for (const auto& [name, off] : reflect::Fields(props)) {
+						const auto size = ui::SizeOf(props, name);
+						if (off < 0 || size != static_cast<std::int32_t>(sizeof(UE::FText)) || off + size > props->propertiesSize) continue;
+						auto* t = reinterpret_cast<UE::FText*>(static_cast<std::uint8_t*>(ret) + off);
+						if (reflect::TextSet(*t)) texts.emplace_back(name, reflect::Text(*t));
+						t->~FText();
+					}
+				}
+			}
+for (UE::UStruct* c = a_item->GetClass(); c; c = c->GetSuperStruct()) {
+				if (pe::Utf8(c->GetFName().ToString()) == "Object") break;
+				for (const auto& [name, off] : reflect::Fields(c)) {
+					const auto size = ui::SizeOf(c, name);
+					if (off < 0 || size != static_cast<std::int32_t>(sizeof(UE::FText)) || off + size > c->propertiesSize) continue;
+					const auto& t = *reinterpret_cast<const UE::FText*>(reinterpret_cast<const std::uint8_t*>(a_item) + off);
+					if (!reflect::TextSet(t)) continue;
+					texts.emplace_back(name, reflect::Text(t));
+				}
+			}
+			if (!s_logged) {
+				s_logged = true;
+				logger::debug("own filter (quests): a list item is {}; its text properties: {}", pe::Utf8(a_item->GetClass()->GetFName().ToString()), texts.empty() ? std::string("none") : std::string());
+				for (const auto& [n, t] : texts) logger::debug("own filter (quests):   {} = {}", n, t.substr(0, 60));
+			}
+			for (const char* want : { "name", "title" }) {
+				for (const auto& [n, t] : texts) {
+					std::string low = n;
+					for (auto& ch : low) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+					if (!t.empty() && low.find(want) != std::string::npos) {
+						if (a_route) *a_route = "text property";
+						return t;
+					}
+				}
+			}
+			std::string all;
+			for (const auto& [n, t] : texts) all += t + " ";
+			if (!all.empty() && a_route) *a_route = "text properties";
+			return all;
+		}
+
+		std::string ItemName(UE::UObject* a_item, menus::Menu a_menu, const char** a_route = nullptr)
+{
 			static auto* magicProps = reinterpret_cast<UE::UStruct*>(UE::StaticFindObject<UE::UObject>(nullptr, nullptr, L"/Script/Altar.LegacyMagicMenuItemProperties"));
 			static auto* invProps = reinterpret_cast<UE::UStruct*>(UE::StaticFindObject<UE::UObject>(nullptr, nullptr, L"/Script/Altar.OriginalInventoryMenuItemProperties"));
 			if (!a_item || !a_item->GetClass() || !reflect::Ok() || !reflect::IsLive(a_item)) return {};
@@ -127,7 +192,8 @@ namespace msearch
 					return s;
 				}
 			}
-			auto* props = a_menu == menus::Menu::kMagic ? magicProps : invProps;
+			if (a_menu == menus::Menu::kQuests) return GenericItemName(a_item, a_route);
+						auto* props = a_menu == menus::Menu::kMagic ? magicProps : invProps;
 			ui::Call g(a_item, L"GetProperties");
 			void*    ret = g && props ? g.At("ReturnValue") : nullptr;
 			const auto nameOff = props ? reflect::Offset(props, "Name") : -1;
@@ -152,6 +218,7 @@ namespace msearch
 		std::vector<reflect::Handle>  source;    // the full list, as the game last built it
 		std::vector<UE::UObject*>     applied;   // what the list holds after our last rewrite (raw pointers: only compared, never used)
 		std::string                   appliedText;
+		Clock::time_point             nextSnapshot{};   // with no search: the next time the whole list is copied again
 		std::vector<UE::UObject*>     evaluated;   // the list as last looked at, and the text it was looked at with
 		std::string                   evaluatedText;
 		bool                          active = false, watching = false;
@@ -168,7 +235,7 @@ namespace msearch
 		}
 	};
 
-		FilterState g_filter[5];   // by menu
+		FilterState g_filter[6];   // by menu
 
 		// ---- our own search bar (Inventory and Magic) ----
 		// A bar in the menu's own root canvas, where the search mods put theirs, and the typing for it: while it is being typed into, the
@@ -188,9 +255,9 @@ namespace msearch
 			double            x = 0, y = 0, w = 0, h = 0;   // where it sits in its canvas (menu units)
 			Clock::time_point nextLook{}, nextMeasure{};
 		};
-		BarWidgets g_bar[5];
+		BarWidgets g_bar[6];
 		struct PxRect { double x = 0, y = 0, w = 0, h = 0; bool valid = false; };
-		PxRect  g_barPx[5];   // the bar's place in window pixels (g_qMutex)
+		PxRect  g_barPx[6];   // the bar's place in window pixels (g_qMutex)
 		HWND    g_hwnd = nullptr;
 		WNDPROC  g_origProc = nullptr;
 
@@ -214,9 +281,13 @@ namespace msearch
 			static auto* treeClass = ui::Class(L"/Script/UMG.WidgetTree");
 			auto*        menuW = MenuWidget(a_menu);
 							if (!menuW || !canvasClass || !treeClass || !reflect::Ok()) return nullptr;
-			auto* wrapper = IsSide(a_menu) ? nullptr : ui::FindInTree(menuW, a_menu == menus::Menu::kMagic ? "Magic_Spell_List" : "inv_cont_listview");
+			auto* wrapper = IsSide(a_menu) || a_menu == menus::Menu::kQuests ? nullptr : ui::FindInTree(menuW, a_menu == menus::Menu::kMagic ? "Magic_Spell_List" : "inv_cont_listview");
 			auto* owner = wrapper ? OwnerWidget(wrapper) : nullptr;
-			for (auto* w : { menuW, owner }) {
+			std::vector<UE::UObject*> cands{ menuW, owner };
+						if (a_menu == menus::Menu::kQuests) {
+							for (auto* p = OwnerWidget(menuW); p; p = OwnerWidget(p)) cands.push_back(p);
+						}
+						for (auto* w : cands) {
 				if (!w || !w->GetClass()) continue;
 				const auto wsOff = reflect::Offset(w->GetClass(), "WidgetTree");
 				auto**      tree = wsOff >= 0 ? reflect::At<UE::UObject*>(w, wsOff) : nullptr;
@@ -224,7 +295,7 @@ namespace msearch
 				const auto rootOff = reflect::Offset(treeClass, "RootWidget");
 				auto**      root = rootOff >= 0 ? reflect::At<UE::UObject*>(*tree, rootOff) : nullptr;
 				if (root && *root && (*root)->GetClass() && (*root)->GetClass()->IsChildOf(canvasClass)) {
-					if (a_log) logger::info("own bar: the {}'s bar goes into the root canvas of {}", menus::Name(a_menu), pe::Utf8(w->GetClass()->GetFName().ToString()));
+					if (a_log) logger::debug("own bar: the {}'s bar goes into the root canvas of {}", menus::Name(a_menu), pe::Utf8(w->GetClass()->GetFName().ToString()));
 					return *root;
 				}
 			}
@@ -241,7 +312,7 @@ namespace msearch
 			if (auto* t = reflect::Get(s_tex[slot])) return t;
 			if (s_failed[slot]) return slot ? BarTexture(menus::Menu::kInventory) : nullptr;
 			const wchar_t* file = slot == 1 ? L"SearchBarYours.png" : slot == 2 ? L"SearchBarTheirs.png" : L"SearchBar.png";
-			const auto     path = cfg::PluginFolder() / L"OblivionMenuSearch" / file;
+			const auto     path = cfg::PluginFolder() / L"MenuSearch" / file;
 			static auto*   lib = ui::Class(L"/Script/Engine.KismetRenderingLibrary");
 			ui::Call       c(lib ? lib->GetDefaultObject(false) : nullptr, L"ImportFileAsTexture2D");
 			void*          fname = c.At("Filename");
@@ -258,7 +329,7 @@ namespace msearch
 				return slot ? BarTexture(menus::Menu::kInventory) : nullptr;
 			}
 			s_tex[slot] = reflect::Hold(tex);
-			logger::info("own bar: the bar image is loaded from {}", path.filename().string());
+			logger::debug("own bar: the bar image is loaded from {}", path.filename().string());
 			return tex;
 		}
 
@@ -290,24 +361,35 @@ namespace msearch
 			a_y = hy - cy - a_h - 6 + p.y;
 			if (cw > 100) g_canvasW = cw;
 			if (a_log) {
-				logger::info("own bar: {}{} - header at {:.0f},{:.0f} {:.0f}x{:.0f}, canvas at {:.0f},{:.0f} {:.0f}x{:.0f} -> bar at {:.0f},{:.0f} {:.0f}x{:.0f}", menus::Name(a_side), take ? " (its list alone)" : "", hx, hy, hw, hh, cx, cy, cw, ch, a_x, a_y, a_w, a_h);
+				logger::debug("own bar: {}{} - header at {:.0f},{:.0f} {:.0f}x{:.0f}, canvas at {:.0f},{:.0f} {:.0f}x{:.0f} -> bar at {:.0f},{:.0f} {:.0f}x{:.0f}", menus::Name(a_side), take ? " (its list alone)" : "", hx, hy, hw, hh, cx, cy, cw, ch, a_x, a_y, a_w, a_h);
 				for (const char* name : { "inv_cont_title", "inv_cont_filter", "inv_cont_listview_overlay" }) {
 					double x = 0, y = 0, w = 0, h = 0;
-					if (auto* o = ui::FindInTree(content, name); o && ui::Measure(o, x, y, w, h)) logger::info("own bar:   {} at {:.0f},{:.0f} {:.0f}x{:.0f}", name, x, y, w, h);
+					if (auto* o = ui::FindInTree(content, name); o && ui::Measure(o, x, y, w, h)) logger::debug("own bar:   {} at {:.0f},{:.0f} {:.0f}x{:.0f}", name, x, y, w, h);
 				}
 			}
 			return true;
 		}
 
-		bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
+		// the quests tab's bar sits where the Magic menu's does; what the canvas it went into and the quest panels measure is logged, to check that
+		void LogQuestLayout(UE::UObject* a_canvas)
 		{
+			double x = 0, y = 0, w = 0, h = 0;
+			if (ui::Measure(a_canvas, x, y, w, h)) logger::debug("own bar: the quests tab - the canvas the bar goes into is at {:.0f},{:.0f} {:.0f}x{:.0f}", x, y, w, h);
+			if (auto* page = quests::Page(); page && ui::Measure(page, x, y, w, h)) logger::debug("own bar:   quests page at {:.0f},{:.0f} {:.0f}x{:.0f}", x, y, w, h);
+			if (auto* panel = quests::ListPanel(); panel && ui::Measure(panel, x, y, w, h)) logger::debug("own bar:   quest list panel at {:.0f},{:.0f} {:.0f}x{:.0f}", x, y, w, h);
+			if (auto* list = quests::ListWrapper(); list && ui::Measure(list, x, y, w, h)) logger::debug("own bar:   quest list at {:.0f},{:.0f} {:.0f}x{:.0f}", x, y, w, h);
+		}
+
+bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
+{
 			static int         s_n = 0;
 			const std::wstring n = std::to_wstring(++s_n);
 			const auto&        c = cfg::Get();
-			const auto&        place = a_menu == menus::Menu::kMagic ? c.magicBar : c.inventoryBar;
+			const auto&        place = a_menu == menus::Menu::kMagic ? c.magicBar : a_menu == menus::Menu::kQuests ? c.questBar : c.inventoryBar;
 			double             barX = place.x, barW = place.w, barH = place.h;
 			double             barY = place.y;
 			if (IsSide(a_menu) && !ContainerBarRect(a_menu, a_canvas, barX, barY, barW, barH, true)) return false;
+				if (a_menu == menus::Menu::kQuests) LogQuestLayout(a_canvas);
 			UE::UObject* slot = nullptr;
 			auto*        frame = ui::AddToCanvas(a_canvas, L"/Script/UMG.Image", (L"IwmBarFrame" + n).c_str(), &slot);
 			if (!frame || !slot) return false;
@@ -348,7 +430,7 @@ namespace msearch
 			B.visible = true;
 			B.shown = "\x01";   // matches nothing real: the first update draws it
 			B.typing = false;
-			logger::info("own bar: built in the {}", menus::Name(a_menu));
+			logger::debug("own bar: built in the {}", menus::Name(a_menu));
 			return true;
 		}
 
@@ -375,14 +457,19 @@ namespace msearch
 				B.visible = true;
 			}
 			const bool        typing = g_typing.load() && g_typingMenu.load() == static_cast<int>(a_menu);
-			const std::string q = QueryOf(a_menu);
+				if (!typing) {
+					std::scoped_lock l(g_qMutex);
+					g_selAll[static_cast<int>(a_menu) % 6] = false;
+				}
+				const std::string q = QueryOf(a_menu);
 			const bool        caret = typing && (GetTickCount64() / 500) % 2 == 0;
 			const bool        hint = q.empty() && !typing;
 			const std::string show = hint ? B.hint : q + (typing ? (caret ? "|" : " ") : "");
-			const std::string key = std::string(hint ? "#" : "=") + show;
+			const bool        sel = typing && !q.empty() && SelAllOf(a_menu);   // selected: drawn in the bar's gold
+				const std::string key = std::string(hint ? "#" : sel ? "*" : "=") + show;
 			if (key != B.shown) {
 				uix::SetText(label, show);
-				uix::Ink(label, hint ? kBarHint : kBarInk);
+				uix::Ink(label, hint ? kBarHint : sel ? kBarFocus : kBarInk);
 				uix::ApplyFont(label, cfg::Get().barFontSize);
 				B.shown = key;
 			}
@@ -401,7 +488,7 @@ namespace msearch
 					}
 					if (want != B.hint) {
 						B.hint = want;
-						logger::info("own bar: the {}'s empty bar says {}", menus::Name(a_menu), want);
+						logger::debug("own bar: the {}'s empty bar says {}", menus::Name(a_menu), want);
 					}
 					// the layout can change (the container's list alone, or beside yours): the bar follows its header
 					auto*  canvas = reflect::Get(B.canvas);
@@ -417,7 +504,7 @@ namespace msearch
 						B.y = y;
 						B.w = w;
 						B.h = h;
-						logger::info("own bar: the {}'s bar moved to {:.0f},{:.0f} {:.0f}x{:.0f}", menus::Name(a_menu), x, y, w, h);
+						logger::debug("own bar: the {}'s bar moved to {:.0f},{:.0f} {:.0f}x{:.0f}", menus::Name(a_menu), x, y, w, h);
 					}
 				}
 				double x = 0, y = 0, w = 0, h = 0;
@@ -447,13 +534,20 @@ namespace msearch
 		void Typed(wchar_t a_c, menus::Menu a_menu)
 		{
 			std::scoped_lock l(g_qMutex);
-			auto&            q = g_queries[static_cast<int>(a_menu) % 5];
+			auto&            q = g_queries[static_cast<int>(a_menu) % 6];
+			bool&            sel = g_selAll[static_cast<int>(a_menu) % 6];
 			if (a_c == 8) {
-				if (!q.empty()) q.pop_back();
+				if (sel) q.clear();
+				else if (!q.empty()) q.pop_back();
+				sel = false;
 			} else if (a_c == 0x16) {   // Ctrl+V
+				if (sel) q.clear();
+				sel = false;
 				PasteInto(q);
-			} else if (a_c >= 32 && a_c < 127 && q.size() < kMaxText) {
-				q.push_back(static_cast<char>(a_c));
+			} else if (a_c >= 32 && a_c < 127) {
+				if (sel) q.clear();   // a selected text is replaced by what is typed
+				sel = false;
+				if (q.size() < kMaxText) q.push_back(static_cast<char>(a_c));
 			}
 		}
 
@@ -461,7 +555,7 @@ namespace msearch
 		{
 			const int x = static_cast<short>(LOWORD(a_l)), y = static_cast<short>(HIWORD(a_l));
 			std::scoped_lock l(g_qMutex);
-			const auto& r = g_barPx[static_cast<int>(a_menu) % 5];
+			const auto& r = g_barPx[static_cast<int>(a_menu) % 6];
 			return r.valid && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 		}
 
@@ -496,11 +590,23 @@ namespace msearch
 				auto       menu = menus::Active();
 				const bool cont = menu == menus::Menu::kNone && container::Open();
 				if (cont) menu = g_typing.load() ? static_cast<menus::Menu>(g_typingMenu.load()) : SideUnderCursor();   // the container / barter menu: the side typed into, else the one the mouse is on
+				if (!cont && menu == menus::Menu::kNone && quests::Open()) menu = menus::Menu::kQuests;
 				if (MenuEnabled(menu)) {
 					if (g_typing.load()) {
 						switch (a_m) {
 						case WM_KEYDOWN:   // a key typed into the bar: nothing else sees it (the menu's hotkeys stay quiet)
-							if (a_w == VK_ESCAPE || a_w == VK_RETURN) g_typing = false;
+							if (a_w == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) {   // Ctrl+A: select all
+															std::scoped_lock l(g_qMutex);
+															g_selAll[static_cast<int>(menu) % 6] = !g_queries[static_cast<int>(menu) % 6].empty();
+															return 0;
+														}
+														if (a_w == VK_DELETE) {   // Delete clears a selected text
+															std::scoped_lock l(g_qMutex);
+															if (g_selAll[static_cast<int>(menu) % 6]) g_queries[static_cast<int>(menu) % 6].clear();
+															g_selAll[static_cast<int>(menu) % 6] = false;
+															return 0;
+														}
+														if (a_w == VK_ESCAPE || a_w == VK_RETURN) g_typing = false;
 							return 0;
 						case WM_CHAR:
 							Typed(static_cast<wchar_t>(a_w), menu);
@@ -519,7 +625,7 @@ namespace msearch
 						}
 					} else if (!ControllerKeyboardUp()) {
 						const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-						if (a_m == WM_KEYDOWN && (a_w == 'F' || a_w == 'K') && ctrl && !alt) {
+						if (a_m == WM_KEYDOWN && a_w == 'F' && ctrl && !alt) {
 							g_typingMenu = static_cast<int>(menu);
 							g_typing = true;
 							return 0;
@@ -565,14 +671,14 @@ namespace msearch
 			if (!found) return;
 			g_hwnd = found;
 			g_origProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(found, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&BarProc)));
-			logger::info("own bar: the game window's keys and clicks are watched for typing ({})", g_origProc ? "ok" : "FAILED");
+			logger::debug("own bar: the game window's keys and clicks are watched for typing ({})", g_origProc ? "ok" : "FAILED");
 			if (g_origProc) {
 				const DWORD windowThread = GetWindowThreadProcessId(found, nullptr);
 				if (g_gameThread && windowThread == g_gameThread) {   // the window's messages are handled on the game's thread: a timer there is a safe extra tick
 					SetTimer(found, kTimerId, 8, nullptr);
-					logger::info("own bar: the game window is on the game thread ({}) - a timer on it ticks the search too", windowThread);
+					logger::debug("own bar: the game window is on the game thread ({}) - a timer on it ticks the search too", windowThread);
 				} else {
-					logger::info("own bar: the game window is on thread {}, the game thread is {} - the search is ticked by the controller read only", windowThread, g_gameThread);
+					logger::debug("own bar: the game window is on thread {}, the game thread is {} - the search is ticked by the controller read only", windowThread, g_gameThread);
 				}
 			}
 		}
@@ -603,7 +709,7 @@ namespace msearch
 		RegisterMenuHooks();
 		// a menu that is not the open one forgets everything it held (in the container / barter menu both sides are open)
 		const auto context = menus::Active();
-		for (int m = 1; m <= 4; ++m) {
+		for (int m = 1; m <= 5; ++m) {
 			if (!Present(static_cast<menus::Menu>(m), context) && g_filter[m].watching) g_filter[m].Reset();
 		}
 		if (!cfg::Get().ownFilter || !reflect::Ok() || !MenuEnabled(a_menu)) return;
@@ -616,6 +722,8 @@ namespace msearch
 			if (IsSide(a_menu)) {
 				auto* content = container::SideContent(a_menu);
 				list = content ? ui::FindInTree(content, "inv_cont_listview") : nullptr;
+			} else if (a_menu == menus::Menu::kQuests) {
+				list = quests::ListWrapper();
 			} else {
 				auto* menuW = menus::Widget(a_menu);
 				list = menuW ? ui::FindInTree(menuW, a_menu == menus::Menu::kMagic ? "Magic_Spell_List" : "inv_cont_listview") : nullptr;
@@ -625,11 +733,11 @@ namespace msearch
 			S.list = reflect::Hold(view);
 			S.watching = true;
 			logger::debug("own filter: watching the list of the {}", menuName);
-			if (IsSide(a_menu)) {   // what the container's rows are: their class and how their names read
+			if (IsSide(a_menu) || a_menu == menus::Menu::kQuests) {   // what the rows are: their class and how their names read
 				const auto  items = ListItemsOf(view);
 				const char* route = "none";
 				const auto  first = items.empty() ? std::string() : ItemName(items.front(), a_menu, &route);
-				logger::info("own filter ({}): the list holds {} items; the first is {} named \"{}\" (read by {})", menuName, items.size(),
+				logger::debug("own filter ({}): the list holds {} items; the first is {} named \"{}\" (read by {})", menuName, items.size(),
 					items.empty() ? std::string("n/a") : pe::Utf8(items.front()->GetClass()->GetFName().ToString()), first, route);
 			}
 		}
@@ -637,6 +745,8 @@ namespace msearch
 		if (!list) return;
 		const auto text = QueryOf(a_menu);
 		const auto query = Lower(text);
+		if (query.empty() && !S.active && a_now < S.nextSnapshot && ItemCount(list) == static_cast<int>(S.source.size())) return;   // nothing searched, nothing changed: no copy of the list
+		S.nextSnapshot = a_now + 250ms;
 		const auto live = ListItemsOf(list);
 		if (query.empty()) {
 			// no search: the list is whole - keep a copy of it, and give it back whole if we had cut it down
@@ -693,8 +803,25 @@ namespace msearch
 			}
 			source.push_back(o);
 		}
+		if (a_menu == menus::Menu::kQuests) {   // rows whose names cannot be read: the list is left whole (never emptied by a search that cannot match)
+			bool any = false;
+			for (auto* o : source) {
+				if (!ItemName(o, a_menu).empty()) {
+					any = true;
+					break;
+				}
+			}
+			if (!any) {
+				static bool s_said = false;
+				if (!s_said) {
+					s_said = true;
+					logger::warn("own filter (quests): no list item has a readable name - the list is left whole");
+				}
+				return;
+			}
+		}
 		for (auto* o : source) {
-			if (Lower(ItemName(o, a_menu)).find(query) != std::string::npos) keep.push_back(o);
+					if (Lower(ItemName(o, a_menu)).find(query) != std::string::npos) keep.push_back(o);
 		}
 		ApplyItems(list, keep);
 		S.applied = keep;
@@ -724,7 +851,14 @@ namespace msearch
 		static bool s_in = false;   // our own calls into the list never come back here, but be sure
 		if (s_in || !a_obj || !cfg::Get().ownFilter) return;
 		auto* cls = a_obj->GetClass();
-		if (cls && cls == container::Class()) {   // the container / barter menu: both sides
+		if (cls && (cls == quests::PageClass() || cls == quests::PanelClass())) {   // the quests tab
+					if (cls == quests::PageClass()) quests::NoteInstance(a_obj);
+s_in = true;
+					FilterQuick(menus::Menu::kQuests, pe::FunctionName(a_fn).c_str());
+					s_in = false;
+					return;
+				}
+				if (cls && cls == container::Class()) {   // the container / barter menu: both sides
 			s_in = true;
 			FilterQuick(menus::Menu::kContainerYours, pe::FunctionName(a_fn).c_str());
 			FilterQuick(menus::Menu::kContainerTheirs, pe::FunctionName(a_fn).c_str());
@@ -746,14 +880,27 @@ namespace msearch
 			if (s_done[i]) continue;
 			if (auto* cls = menus::ClassOf(m); cls && pe::WatchPost(cls, &OnMenuPost)) {
 				s_done[i] = true;
-				logger::info("own filter: watching the {}'s calls to filter right after them", menus::Name(m));
+				logger::debug("own filter: watching the {}'s calls to filter right after them", menus::Name(m));
 			}
 		}
-		static bool s_doneContainer = false;
+		static bool s_doneQuestPage = false, s_doneQuestPanel = false;
+				if (!s_doneQuestPage) {
+					if (auto* cls = quests::PageClass(); cls && pe::WatchPost(cls, &OnMenuPost)) {
+						s_doneQuestPage = true;
+						logger::debug("own filter: watching the quests page's calls to filter right after them");
+					}
+				}
+				if (!s_doneQuestPanel) {
+					if (auto* cls = quests::PanelClass(); cls && pe::WatchPost(cls, &OnMenuPost)) {
+						s_doneQuestPanel = true;
+						logger::debug("own filter: watching the quests list panel's calls to filter right after them");
+					}
+				}
+				static bool s_doneContainer = false;
 		if (!s_doneContainer) {
 			if (auto* cls = container::Class(); cls && pe::WatchPost(cls, &OnMenuPost)) {
 				s_doneContainer = true;
-				logger::info("own filter: watching the container / barter menu's calls to filter right after them");
+				logger::debug("own filter: watching the container / barter menu's calls to filter right after them");
 			}
 		}
 	}
@@ -775,7 +922,7 @@ const bool  have = reflect::Get(B.frame) && reflect::Get(B.label);
 			if (!canvas) {
 				if (!have) return;
 			} else if (!have || canvas != reflect::Get(B.canvas)) {
-				if (have) logger::info("own bar: the {}'s canvas is another one now - the bar is built again", menus::Name(a_menu));
+				if (have) logger::debug("own bar: the {}'s canvas is another one now - the bar is built again", menus::Name(a_menu));
 				for (auto* w : { reflect::Get(B.frame), reflect::Get(B.edge), reflect::Get(B.label) }) {
 					if (w) {
 						ui::Call rm(w, L"RemoveFromParent");
@@ -797,7 +944,8 @@ const bool  have = reflect::Get(B.frame) && reflect::Get(B.label);
 			if (!reflect::Ok()) reflect::SelfCheck();
 			menus::Tick();
 			container::Tick();
-		}
+						quests::Tick();
+}
 		const bool cont = a_menu == menus::Menu::kNone && container::Open();   // the container / barter menu: a bar and a list on each side
 		{   // which of its sides are on the screen: a plain container shows only its own list (nothing to give)
 			static auto nextShown = Clock::now();
@@ -808,26 +956,29 @@ const bool  have = reflect::Get(B.frame) && reflect::Get(B.label);
 				nextShown = now + 100ms;
 				for (const auto side : { menus::Menu::kContainerYours, menus::Menu::kContainerTheirs }) {
 					const bool shown = SideShownNow(side);
-					if (shown != g_sideShown[static_cast<int>(side)].load()) logger::info("container menu: the {} is {}", menus::Name(side), shown ? "on the screen" : "not on the screen");
+					if (shown != g_sideShown[static_cast<int>(side)].load()) logger::debug("container menu: the {} is {}", menus::Name(side), shown ? "on the screen" : "not on the screen");
 					g_sideShown[static_cast<int>(side)] = shown;
 				}
 			}
 		}
+const bool quest = !cont && a_menu == menus::Menu::kNone && quests::Open();   // the quests tab: a bar and the quest list
 if (g_typing.load()) {
-			const auto typed = static_cast<menus::Menu>(g_typingMenu.load());
-			if ((typed != a_menu && !(cont && IsSide(typed))) || g_external.load()) g_typing = false;
-		}
+	const auto typed = static_cast<menus::Menu>(g_typingMenu.load());
+	if ((typed != a_menu && !(cont && IsSide(typed)) && !(quest && typed == menus::Menu::kQuests)) || g_external.load()) g_typing = false;
+}
 		if (cont) {
 			for (const auto side : { menus::Menu::kContainerYours, menus::Menu::kContainerTheirs }) {
 				BarTick(side, now);
 				FilterTick(side, now);
 			}
+		} else if (quest) {
+			BarTick(menus::Menu::kQuests, now);
+			FilterTick(menus::Menu::kQuests, now);
 		} else {
 			BarTick(a_menu, now);
 			FilterTick(a_menu, now);
 		}
-		probe::Tick();
-	}
+}
 
 	void SetGameThread(DWORD a_id) { g_gameThread = a_id; }
 	void SetConflict(bool a_conflict) { g_conflict = a_conflict; }
@@ -843,7 +994,7 @@ if (g_typing.load()) {
 	}
 	bool PanelOnLeft(menus::Menu a_menu)
 	{
-		const auto& B = g_bar[static_cast<int>(a_menu) % 5];
+		const auto& B = g_bar[static_cast<int>(a_menu) % 6];
 		if (IsSide(a_menu) && B.w > 0) return B.x + B.w * 0.5 < g_canvasW * 0.5;
 		return a_menu != menus::Menu::kContainerTheirs;
 	}
@@ -852,7 +1003,8 @@ if (g_typing.load()) {
 {
 		const auto m = menus::Active();
 		if (m != menus::Menu::kNone) return static_cast<int>(m);
-		return !g_conflict && cfg::Get().container && container::Open() ? 3 : 0;
+		if (!g_conflict && cfg::Get().container && container::Open()) return 3;
+				return !g_conflict && cfg::Get().quests && quests::Open() ? 5 : 0;
 	}
 	void SetExternalInput(bool a_open)
 {

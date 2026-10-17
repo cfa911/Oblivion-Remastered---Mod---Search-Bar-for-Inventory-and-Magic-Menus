@@ -27,7 +27,7 @@ namespace cfg
 
 	void Load()
 	{
-		const auto ini = ThisModule().parent_path() / L"OblivionSearchKeyboard.ini";
+		const auto ini = ThisModule().parent_path() / L"MenuSearchControllerKeyboard.ini";
 		Values     v;
 		if (std::filesystem::exists(ini)) {
 			v.logLevel = ReadInt(ini, L"Log", L"uLogLevel", v.logLevel, 0, 4);

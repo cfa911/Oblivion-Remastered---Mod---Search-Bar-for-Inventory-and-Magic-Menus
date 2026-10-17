@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0
+
+### Added
+- **Quests tab:** a search bar (where the Magic menu's sits; `[Quest]` in the ini moves it) that filters the quest list, with the controller keyboard too (`bQuests` switches it off).
+- **Ctrl+A** selects all the text of a bar: the next key replaces it, Backspace or Delete clears it; it is drawn in the bar's gold.
+- The controller keyboard capitalizes the first letter of a search, and lets **LT and RT** through, so they still switch the menu's tabs while you type.
+- New `SearchBar.png`: black like before, now with the jagged golden outline of the container bars (`tools/gen_searchbar_side.py black 972 72`).
+
+### Changed
+- **Ctrl+F is the only shortcut** that starts typing (Ctrl+K is gone), in every menu.
+- **New names:** the mods are *Menu Search* and *Menu Search - Controller Keyboard*; the files are `MenuSearch.dll` / `MenuSearch.ini` / `MenuSearch\` and `MenuSearchControllerKeyboard.dll` / `.ini` / folder, the logs `MenuSearch.log` and `MenuSearchControllerKeyboard.log`, the API exports `MenuSearch_*`. The keyboard still finds a 1.x `OblivionMenuSearch.dll`. Uninstall the 1.x files first; if both are installed the new plugins stand down.
+- Menu Search API: menu id 5 is the quests tab (`OblivionMenuSearch_ActiveContext` / `MenuSearch_ActiveContext` returns 5 there).
+
 ## 1.1.0
 
 ### Added

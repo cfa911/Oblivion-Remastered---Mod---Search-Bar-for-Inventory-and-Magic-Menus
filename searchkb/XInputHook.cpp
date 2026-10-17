@@ -70,8 +70,7 @@ namespace hook
 			if (osk::Taking()) {
 				osk::Rewrite(raw, a_pad.sThumbLX, a_pad.sThumbLY, now);
 				a_pad.wButtons = 0;
-				a_pad.bLeftTrigger = 0;
-				a_pad.bRightTrigger = 0;
+				// the triggers go through: LT / RT switch the menu's tabs and the search follows the list (the keyboard itself does not use them)
 				a_pad.sThumbLX = a_pad.sThumbLY = a_pad.sThumbRX = a_pad.sThumbRY = 0;
 				return;
 			}

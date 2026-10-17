@@ -1,25 +1,25 @@
-# Search Bars for the Inventory, Magic and Container Menus — Oblivion Remastered
+# Menu Search — search bars for the Inventory, Magic, Quests and Container menus (Oblivion Remastered)
 
-Two OBSE64 plugins for *The Elder Scrolls IV: Oblivion Remastered*. Both are open source (GPL-3.0-or-later). Current mod release: **v1.1.0**.
+Two OBSE64 plugins for *The Elder Scrolls IV: Oblivion Remastered*. Both are open source (GPL-3.0-or-later). Current mod release: **v1.2.0**.
 
 | Plugin | What it does | Needs |
 |---|---|---|
-| **Oblivion Menu Search** | A search bar in the Inventory and Magic menus, and one on each side of the container / barter menu. Type part of a name and the list shows only the matches. | OBSE64, Address Library |
-| **Menu Search - Controller Keyboard** | A controller on-screen keyboard (parchment page, the game's font and button icons) that types into those bars. | The above, and a controller |
+| **Menu Search** (`MenuSearch.dll`) | A search bar in the Inventory, Magic and quests menus, and one on each side of the container / barter menu. Type part of a name and the list shows only the matches. | OBSE64, Address Library |
+| **Menu Search - Controller Keyboard** (`MenuSearchControllerKeyboard.dll`) | A controller on-screen keyboard (parchment page, the game's font and button icons) that types into those bars. | Menu Search, and a controller |
 
-The two are separate downloads. The keyboard is useless without Menu Search and says so in its log. Menu Search works on its own with keyboard and mouse. (The keyboard plugin's file is still `OblivionSearchKeyboard.dll`; in 1.0.0 the package was called Oblivion Search Keyboard.)
+The two are separate downloads. The keyboard is useless without Menu Search and says so in its log. Menu Search works on its own with keyboard and mouse. (Both were called *Oblivion Menu Search* and *Oblivion Search Keyboard* up to 1.1.0; uninstall those before installing these.)
 
 ## Features
 
 - The list stays filtered through everything the game does to it (equip, use, drop, buy, sell, change tab, reopen the menu). The filter runs in the same frame the game rebuilds the list, so the unfiltered list never flashes on screen.
-- **Inventory and Magic:** one bar at the top of the menu.
+- **Inventory, Magic and quests:** one bar at the top of the menu.
 - **Container and barter menu:** a green bar over your list (*Player*) and a red one over the container's or the merchant's (*Container* / *Seller*). Each side is searched on its own. A plain container shows only its own bar.
-- Keyboard and mouse: **Ctrl+F** or **Ctrl+K**, or click a bar, to type. Backspace, Ctrl+V to paste, Enter or Esc to stop. In the container menu Ctrl+F types into the side the mouse is on.
-- Controller: hold **D-pad right** for 0.4 s to open the keyboard (in the container menu: right = your list, **D-pad left** = the other one; it opens on the other half of the screen so it never covers the list you search). A types, X deletes (hold to clear), Y is space, B or Start closes. The menu stands still while it is open. A tap on D-pad left or right still does what the game does.
+- Keyboard and mouse: **Ctrl+F**, or click a bar, to type. Backspace, Ctrl+V to paste, Ctrl+A to select all, Enter or Esc to stop. In the container menu Ctrl+F types into the side the mouse is on.
+- Controller: hold **D-pad right** for 0.4 s to open the keyboard (in the container menu: right = your list, **D-pad left** = the other one; it opens on the other half of the screen so it never covers the list you search). A types, X deletes (hold to clear), Y is space, B or Start closes. The first letter of a search is a capital. The menu stands still while it is open, but LT and RT still switch its tabs and the search follows the list. A tap on D-pad left or right still does what the game does.
 - Every bar's picture, place and size are in the inis; the pictures are plain PNGs you can replace.
-- Works with Improved Wheel Menu (it steps aside while the keyboard is open).
+- Works with Improved Wheel - Keyboard and Better Controller Support 1.1.2 or newer (it steps aside while the keyboard is open).
 
-Limits: the Inventory, Magic and container / barter menus (spell merchants' spell lists are not searched; a body's bar says *Container*); plain ASCII typing; Xbox button icons only. Built and tested on game build **1.512.105.0**.
+Limits: the Inventory, Magic, quests and container / barter menus (spell merchants' spell lists are not searched; a body's bar says *Container*); plain ASCII typing; Xbox button icons only. Built and tested on game build **1.512.105.0**.
 
 ## Install
 
@@ -27,7 +27,7 @@ Download the two zips from the Releases page and install them with a mod manager
 
 **Incompatible** with Inventory Search (Nexus 5395): Menu Search replaces it. If its DLL is present it logs a warning and switches itself off.
 
-Logs: `Documents\My Games\Oblivion Remastered\OBSE\Logs\OblivionMenuSearch.log` and `OblivionSearchKeyboard.log`.
+Logs: `Documents\My Games\Oblivion Remastered\OBSE\Logs\MenuSearch.log` and `MenuSearchControllerKeyboard.log`.
 
 ## Build
 
@@ -45,13 +45,13 @@ The DLLs land in `build/windows/x64/releasedbg/`. CommonLibOB64 is a submodule p
 ## Layout
 
 ```
-menusearch/   Oblivion Menu Search: bars, typing, list filter, the container / barter menu (Container.cpp), controller tick, exports used by the keyboard
+menusearch/   Menu Search: bars, typing, list filter, the container / barter menu (Container.cpp), the quests tab (Quests.cpp), controller tick, exports used by the keyboard
 searchkb/     Menu Search - Controller Keyboard: on-screen keyboard, controller hook, client of the search API
 src/          helpers both plugins compile: Ui, Reflect, PEHook, Menus (the game's Unreal objects), UiText (text and font)
-tools/        gen_searchbar.py, gen_searchbar_side.py, gen_parchment.py (make the PNGs), merge_ini.py
+tools/        gen_searchbar_side.py, gen_parchment.py (make the PNGs), merge_ini.py
 ```
 
-The keyboard finds `OblivionMenuSearch.dll` by name and calls its exports: `OblivionMenuSearch_ApiVersion` (2), `_Enabled`, `_GetText`, `_SetText`, `_SetExternalInput`, and since version 2 `_ActiveContext` and `_PanelOnLeft`. Menu ids: 1 Inventory, 2 Magic, 3 the container menu's your side, 4 its other side. The keyboard exports `OblivionSearchKeyboard_IsOpen` for other plugins that want to stand aside.
+The keyboard finds `MenuSearch.dll` by name (`OblivionMenuSearch.dll` for 1.x of the plugin) and calls its exports: `MenuSearch_ApiVersion` (2), `_Enabled`, `_GetText`, `_SetText`, `_SetExternalInput`, and since version 2 `_ActiveContext` and `_PanelOnLeft`. Menu ids: 1 Inventory, 2 Magic, 3 the container menu's your side, 4 its other side, 5 the quests tab. The keyboard exports `MenuSearchControllerKeyboard_IsOpen` for other plugins that want to stand aside.
 
 ## Licence and credits
 

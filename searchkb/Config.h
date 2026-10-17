@@ -1,12 +1,12 @@
 #pragma once
 
-// OblivionSearchKeyboard.ini beside the plugin. Read once at load; missing file or keys keep the defaults below.
+// MenuSearchControllerKeyboard.ini beside the plugin. Read once at load; missing file or keys keep the defaults below.
 
 namespace cfg
 {
 	struct Values
 	{
-		int  logLevel = 2;      // [Log] uLogLevel: 0 trace, 1 debug, 2 info, 3 warn, 4 error
+		int  logLevel = 3;      // [Log] uLogLevel: 0 trace, 1 debug, 2 info, 3 warn (the default: warnings and errors only), 4 error
 
 		// [SearchKeyboard]
 		bool enabled = true;    // bEnabled

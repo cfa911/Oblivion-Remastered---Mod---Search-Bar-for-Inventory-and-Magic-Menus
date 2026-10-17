@@ -1,15 +1,16 @@
 #pragma once
 
-// OblivionMenuSearch.ini beside the plugin. Read once at load; missing file or keys keep the defaults below.
+// MenuSearch.ini beside the plugin. Read once at load; missing file or keys keep the defaults below.
 
 namespace cfg
 {
 	struct Values
 	{
-		int  logLevel = 2;      // [Log] uLogLevel: 0 trace, 1 debug, 2 info, 3 warn, 4 error
+		int  logLevel = 3;      // [Log] uLogLevel: 0 trace, 1 debug, 2 info, 3 warn (the default: warnings and errors only), 4 error
 
 		bool inventory = true;  // [Search] bInventory: the Inventory menu has the search
 		bool magic = true;      // [Search] bMagic: the Magic menu has the search
+		bool quests = true;     // [Search] bQuests: the quests tab has the search
 		bool container = true;  // [Search] bContainer: the container / barter menu has the search (a bar on each side)
 
 		int    barFontSize = 19;   // [Bar] uFontSize
@@ -23,13 +24,12 @@ namespace cfg
 		{
 			double x = 0, y = 0, w = 0, h = 0;
 		};
-		Place inventoryBar{ 289, 109.5, 486, 36 }, magicBar{ 289, 110.25, 486, 36 };
+		Place inventoryBar{ 293, 109.5, 482, 36 }, magicBar{ 294, 110.25, 481, 36 };
 		Place yoursBar{ -48, -90, 825, 37 }, theirsBar{ -48, -90, 823, 37 };
+				Place questBar{ 294, 110.25, 481, 36 };   // the quests tab: the same place and size as the Magic menu's bar unless [Quest] says otherwise
 				Place takeBar{ -48, -11, 0, 37 };   // the container's own list alone on the screen (nothing to give): width 0 = the header's plus the offset on both sides
 
-		bool probe = false;     // [Debug] bProbe: log which barter / container widgets are alive and on screen (diagnostic only)
-
-		bool ownFilter = true;  // [Filter] bEnabled: filter the lists (and filter again at once when the game rebuilds one)
+bool ownFilter = true;  // [Filter] bEnabled: filter the lists (and filter again at once when the game rebuilds one)
 	};
 
 	void          Load();
