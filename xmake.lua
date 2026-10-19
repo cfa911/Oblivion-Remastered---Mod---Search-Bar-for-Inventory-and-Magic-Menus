@@ -14,7 +14,7 @@ set_warnings("allextra")
 add_rules("mode.debug", "mode.releasedbg")
 
 target("MenuSearch")
-    set_version("1.2.0")
+    set_version("1.2.1")
     add_rules("commonlibob64.plugin", {
         name = "MenuSearch",
         author = "cfa911",
@@ -28,7 +28,7 @@ target("MenuSearch")
 
 -- Menu Search - Controller Keyboard: a controller on-screen keyboard for the search of the Menu Search plugin, which it needs.
 target("MenuSearchControllerKeyboard")
-    set_version("1.2.0")
+    set_version("1.2.1")
     add_rules("commonlibob64.plugin", {
         name = "MenuSearchControllerKeyboard",
         author = "cfa911",

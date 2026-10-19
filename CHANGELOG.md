@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+### Changed
+- **New names:** *Menu Search* is now **SearchLight** and *Menu Search - Controller Keyboard* is **SearchLight - Controller Keyboard**. The files keep their names (`MenuSearch.dll`, `MenuSearch.ini`, `MenuSearchControllerKeyboard.dll` ...), so settings and the plugins' lookups by name are untouched; the release archives are named `SearchLightv1.2.1.zip`, `SearchLightControllerKeyboardv1.2.1.zip` and `SearchLightSourcev1.2.1.zip`.
+- SearchLight no longer stands down when Inventory Search or Magic Search is installed (the check and the README line are gone). It still stands down for its own old name, Oblivion Menu Search 1.x.
+
 ## 1.2.0
 
 ### Added

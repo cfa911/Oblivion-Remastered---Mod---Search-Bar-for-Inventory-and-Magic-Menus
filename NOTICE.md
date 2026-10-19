@@ -1,8 +1,8 @@
-# Menu Search and Menu Search - Controller Keyboard - copyright and licence
+# SearchLight and SearchLight - Controller Keyboard - copyright and licence
 
 Copyright (C) 2026 cfa911 (the code of this plugin).
 
-Portions: Copyright (C) 2026 ApocryphaRealm - the helper source files shared by the Menu Search and Menu Search - Controller Keyboard
+Portions: Copyright (C) 2026 ApocryphaRealm - the helper source files shared by the SearchLight and SearchLight - Controller Keyboard
 plugins (`Ui`, `Reflect`, `PEHook`, `Menus`: reading and calling the game's Unreal objects, watching their calls) were taken from, and
 adapted from, Improved Wheel Menu (Oblivion Remastered) by ApocryphaRealm, which is GPL-3.0-or-later. Those files keep that notice.
 
@@ -23,7 +23,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 The plugins statically link CommonLibOB64 (https://github.com/libxse/commonlibob64, commit
 3e5ee4fcf96593125339d0035e92be9280eb3acd) and its commonlib-shared library (https://github.com/libxse/commonlib-shared, commit
 9fbb74d628134ab4ea3a3cf5c0ed3f7eeabbd01d), both GPL-3.0; the modding exception that comes with the plugin template is kept in the
-source archive as `EXCEPTIONS`. The complete corresponding source of both plugins is in `MenuSearchSourcev1.2.0.zip`,
+source archive as `EXCEPTIONS`. The complete corresponding source of both plugins is in `SearchLightSourcev1.2.1.zip`,
 released with them.
 
 Components under other licences, with their notices: `THIRD_PARTY_NOTICES.md`.

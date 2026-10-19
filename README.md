@@ -1,13 +1,13 @@
-# Menu Search — search bars for the Inventory, Magic, Quests and Container menus (Oblivion Remastered)
+# SearchLight — search bars for the Inventory, Magic, Quests and Container menus (Oblivion Remastered)
 
-Two OBSE64 plugins for *The Elder Scrolls IV: Oblivion Remastered*. Both are open source (GPL-3.0-or-later). Current mod release: **v1.2.0**.
+Two OBSE64 plugins for *The Elder Scrolls IV: Oblivion Remastered*. Both are open source (GPL-3.0-or-later). Current mod release: **v1.2.1**.
 
 | Plugin | What it does | Needs |
 |---|---|---|
-| **Menu Search** (`MenuSearch.dll`) | A search bar in the Inventory, Magic and quests menus, and one on each side of the container / barter menu. Type part of a name and the list shows only the matches. | OBSE64, Address Library |
-| **Menu Search - Controller Keyboard** (`MenuSearchControllerKeyboard.dll`) | A controller on-screen keyboard (parchment page, the game's font and button icons) that types into those bars. | Menu Search, and a controller |
+| **SearchLight** (`MenuSearch.dll`) | A search bar in the Inventory, Magic and quests menus, and one on each side of the container / barter menu. Type part of a name and the list shows only the matches. | OBSE64, Address Library |
+| **SearchLight - Controller Keyboard** (`MenuSearchControllerKeyboard.dll`) | A controller on-screen keyboard (parchment page, the game's font and button icons) that types into those bars. | SearchLight, and a controller |
 
-The two are separate downloads. The keyboard is useless without Menu Search and says so in its log. Menu Search works on its own with keyboard and mouse. (Both were called *Oblivion Menu Search* and *Oblivion Search Keyboard* up to 1.1.0; uninstall those before installing these.)
+The two are separate downloads. The keyboard is useless without SearchLight and says so in its log. SearchLight works on its own with keyboard and mouse. (Both were called *Oblivion Menu Search* and *Oblivion Search Keyboard* up to 1.1.0; uninstall those before installing these.)
 
 ## Features
 
@@ -17,7 +17,7 @@ The two are separate downloads. The keyboard is useless without Menu Search and 
 - Keyboard and mouse: **Ctrl+F**, or click a bar, to type. Backspace, Ctrl+V to paste, Ctrl+A to select all, Enter or Esc to stop. In the container menu Ctrl+F types into the side the mouse is on.
 - Controller: hold **D-pad right** for 0.4 s to open the keyboard (in the container menu: right = your list, **D-pad left** = the other one; it opens on the other half of the screen so it never covers the list you search). A types, X deletes (hold to clear), Y is space, B or Start closes. The first letter of a search is a capital. The menu stands still while it is open, but LT and RT still switch its tabs and the search follows the list. A tap on D-pad left or right still does what the game does.
 - Every bar's picture, place and size are in the inis; the pictures are plain PNGs you can replace.
-- Works with Improved Wheel - Keyboard and Better Controller Support 1.1.2 or newer (it steps aside while the keyboard is open).
+- Works with Improved Wheels Plus 1.1.2 or newer (it steps aside while the keyboard is open).
 
 Limits: the Inventory, Magic, quests and container / barter menus (spell merchants' spell lists are not searched; a body's bar says *Container*); plain ASCII typing; Xbox button icons only. Built and tested on game build **1.512.105.0**.
 
@@ -44,8 +44,8 @@ The DLLs land in `build/windows/x64/releasedbg/`. CommonLibOB64 is a submodule p
 ## Layout
 
 ```
-menusearch/   Menu Search: bars, typing, list filter, the container / barter menu (Container.cpp), the quests tab (Quests.cpp), controller tick, exports used by the keyboard
-searchkb/     Menu Search - Controller Keyboard: on-screen keyboard, controller hook, client of the search API
+menusearch/   SearchLight: bars, typing, list filter, the container / barter menu (Container.cpp), the quests tab (Quests.cpp), controller tick, exports used by the keyboard
+searchkb/     SearchLight - Controller Keyboard: on-screen keyboard, controller hook, client of the search API
 src/          helpers both plugins compile: Ui, Reflect, PEHook, Menus (the game's Unreal objects), UiText (text and font)
 tools/        gen_searchbar_side.py, gen_parchment.py (make the PNGs), merge_ini.py
 ```
