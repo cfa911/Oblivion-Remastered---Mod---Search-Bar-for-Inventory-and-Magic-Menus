@@ -14,17 +14,9 @@ namespace
 			return;
 		}
 		msearch::SetGameThread(GetCurrentThreadId());   // OBSE's post-load runs on the thread the engine's objects are used on
-		// Another search mod would give two search bars and two filters on one list: this plugin stands down and says so.
+		// The old file name of this plugin would give two search bars and two filters on one list: this plugin stands down and says so.
 		if (GetModuleHandleW(L"OblivionMenuSearch.dll")) {   // Oblivion Menu Search 1.x (this plugin's old file name) is installed too
 			logger::warn("Oblivion Menu Search 1.x (OblivionMenuSearch.dll) is installed - this plugin is the same mod under a new name, so it stands down. Uninstall the old one.");
-			msearch::SetConflict(true);
-			return;
-		}
-		const bool magic = GetModuleHandleW(L"OblivionMagicSearch.dll") != nullptr;
-		const bool inventory = GetModuleHandleW(L"OblivionInventorySearch.dll") != nullptr;
-		if (magic || inventory) {
-			logger::warn("{}{}{} is installed - this plugin does its own search, so it stands down. Disable that mod to use this one.",
-				magic ? "Magic Search (OblivionMagicSearch.dll)" : "", magic && inventory ? " and " : "", inventory ? "Inventory Search (OblivionInventorySearch.dll)" : "");
 			msearch::SetConflict(true);
 			return;
 		}

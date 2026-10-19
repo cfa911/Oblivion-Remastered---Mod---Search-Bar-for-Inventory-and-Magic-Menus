@@ -25,7 +25,6 @@ Limits: the Inventory, Magic, quests and container / barter menus (spell merchan
 
 Download the two zips from the Releases page and install them with a mod manager, or unzip into the game folder so that the files end up in `OblivionRemastered\Binaries\Win64\OBSE\Plugins\`. Requires [OBSE64](https://www.nexusmods.com/oblivionremastered/mods/282) and [Address Library for OBSE Plugins](https://www.nexusmods.com/oblivionremastered/mods/4475). UE4SS is not needed.
 
-**Incompatible** with Inventory Search (Nexus 5395): Menu Search replaces it. If its DLL is present it logs a warning and switches itself off.
 
 Logs: `Documents\My Games\Oblivion Remastered\OBSE\Logs\MenuSearch.log` and `MenuSearchControllerKeyboard.log`.
 
