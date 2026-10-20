@@ -20,5 +20,7 @@ namespace msearch
 	void        SetText(menus::Menu a_menu, const std::string& a_text);
 	bool        PanelOnLeft(menus::Menu a_menu);   // the container / barter side's list is on the left half of the screen (the keyboard goes on the other half)
 	int         Context();   // the open menu for the keyboard: 0 none, 1 Inventory, 2 Magic, 3 the container / barter menu (both sides: ids 3 and 4)
+	bool        CursorOverBar();   // the mouse is over a bar that is shown (a click there is for the bar; the Improved Wheels Plus plugin leaves it alone)
+	bool        Typing();   // keys are being typed into one of the bars right now (the Improved Wheels Plus plugin leaves its digit keys alone then)
 	void        SetExternalInput(bool a_open);   // the controller keyboard has the text: typed keys are not taken
 }

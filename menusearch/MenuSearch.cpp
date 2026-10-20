@@ -1117,6 +1117,18 @@ if (g_typing.load()) {
 		if (!g_conflict && cfg::Get().container && container::Open()) return 3;
 				return !g_conflict && cfg::Get().quests && quests::Open() ? 5 : 0;
 	}
+	bool Typing() { return g_typing.load(); }
+
+	bool CursorOverBar()
+	{
+		POINT pt{};
+		if (!g_hwnd || !GetCursorPos(&pt) || !ScreenToClient(g_hwnd, &pt)) return false;
+		std::scoped_lock l(g_qMutex);
+		for (const auto& r : g_barPx)
+			if (r.valid && pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return true;
+		return false;
+	}
+
 	void SetExternalInput(bool a_open)
 {
 		g_external = a_open;

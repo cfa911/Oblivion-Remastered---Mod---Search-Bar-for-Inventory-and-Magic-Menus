@@ -65,6 +65,18 @@ extern "C"
 		msearch::SetText(static_cast<menus::Menu>(a_menu), a_text ? a_text : "");
 	}
 
+	// a bar has the typing (the game window's keys go to it): the Improved Wheels Plus plugin's digit keys are not slot keys then; any thread
+	__declspec(dllexport) bool MenuSearch_IsTyping()
+	{
+		return msearch::Typing();
+	}
+
+	// the mouse is over a bar that is shown: a click there starts the typing, the Improved Wheels Plus plugin does not read it as a click on its wheel; any thread
+	__declspec(dllexport) bool MenuSearch_CursorOverBar()
+	{
+		return msearch::CursorOverBar();
+	}
+
 	__declspec(dllexport) void MenuSearch_SetExternalInput(bool a_open)
 	{
 		msearch::SetExternalInput(a_open);
