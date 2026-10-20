@@ -8,7 +8,7 @@ namespace uix
 	// a TextBlock's colour (linear RGBA), with no shadow
 	void Ink(UE::UObject* a_label, const float* a_rgba);
 
-	// SetText on a TextBlock: an ASCII string laid into the call's FText parameter
+	// SetText on a TextBlock: a UTF-8 string laid into the call's FText parameter
 	bool SetText(UE::UObject* a_widget, const std::string& a_text);
 
 	// GetText on an editable or text widget (UTF-8)
@@ -16,7 +16,11 @@ namespace uix
 
 	// The game's own UI font (Font_Robinson_Localized, the one the lists use) at a size in font units, put on a text block's Font property in
 	// place and then through SetFont so the widget redraws. False when the layout is not as expected (the text keeps the default font).
-	bool ApplyFont(UE::UObject* a_widget, double a_size);   // a_size 0 = keep the size the text block has now
+	// a_fallback: the engine's default font (Roboto and Droid Sans Fallback) instead, for text the game's font cannot draw (see NeedsFallbackFont)
+	bool ApplyFont(UE::UObject* a_widget, double a_size, bool a_fallback = false);   // a_size 0 = keep the size the text block has now
+	// does this text (UTF-8) need that fallback: it holds letters beyond Latin (Greek, Cyrillic, kana, Han, Hangul ...) and the game is not Japanese or Chinese,
+	// whose localized font has its own faces for them. Reads the game's culture (once).
+	bool NeedsFallbackFont(const std::string& a_text);
 	// the same, bold: an outline (a_rgba, linear, a_outlineSize px) round every stroke: the text's own colour thickens it, black helps it read on a bright scene - the font has no bold face to ask for
 	bool ApplyBoldFont(UE::UObject* a_widget, double a_size, const float* a_rgba, int a_outlineSize = 1);
 

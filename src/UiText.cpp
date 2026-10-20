@@ -1,6 +1,8 @@
 #include "UiText.h"
 
+#include "PEHook.h"
 #include "Reflect.h"
+#include "TextUtil.h"
 #include "Ui.h"
 
 namespace uix
@@ -8,6 +10,35 @@ namespace uix
 	namespace
 	{
 		constexpr const wchar_t* kFontAsset = L"/Game/UI/CommonStyle/Fonts/Font_Robinson_Localized.Font_Robinson_Localized";
+		// the engine's default font: Roboto with Droid Sans Fallback behind it (both are in the game's paks), which draws Greek, Cyrillic, kana, Han and Hangul
+		constexpr const wchar_t* kFallbackFontAsset = L"/Engine/EngineFonts/Roboto.Roboto";
+
+		// the game's current culture ("de", "ja", "zh-Hans" ...), read once it is known; empty if it cannot be read
+		const std::string& Culture()
+		{
+			static std::string s_culture;
+			static bool        s_tried = false;
+			if (s_tried) return s_culture;
+			static auto* cls = UE::StaticFindObject<UE::UClass>(nullptr, nullptr, L"/Script/Engine.KismetInternationalizationLibrary");
+			auto*        cdo = cls ? cls->GetDefaultObject(false) : nullptr;
+			ui::Call     c(cdo, L"GetCurrentCulture");
+			void*        ret = c ? c.At("ReturnValue") : nullptr;
+			if (!ret || c.Size("ReturnValue") != static_cast<std::int32_t>(sizeof(UE::FString)) || !c.Run()) return s_culture;   // tried again next time
+			auto* s = static_cast<UE::FString*>(ret);
+			s_culture = pe::Utf8(*s);
+			if (void* data = *reinterpret_cast<void**>(s)) UE::FMemory::Free(data);   // the engine allocated the characters
+			s_tried = true;
+			logger::info("uix: the game's culture is \"{}\"", s_culture);
+			return s_culture;
+		}
+	}
+
+	bool NeedsFallbackFont(const std::string& a_text)
+	{
+		if (!textutil::NeedsWideFont(a_text)) return false;
+		// in a Japanese or Chinese game the localized font carries the culture's own faces (Noto Serif JP, Yuji Syuku, Noto Serif SC): it draws their text itself
+		const auto& culture = Culture();
+		return !(culture.starts_with("ja") || culture.starts_with("zh"));
 	}
 
 	void Ink(UE::UObject* a_label, const float* a_c)
@@ -30,7 +61,7 @@ namespace uix
 		const auto params = fn ? reflect::Fields(reinterpret_cast<UE::UStruct*>(fn)) : std::vector<std::pair<std::string, std::int32_t>>{};
 		if (params.empty()) return false;
 		std::vector<std::uint8_t> buf(static_cast<std::size_t>(std::max(reinterpret_cast<UE::UStruct*>(fn)->propertiesSize, 0)) + 16, 0);
-		const std::wstring w(a_text.begin(), a_text.end());
+		const std::wstring w = textutil::Wide(a_text);   // UTF-8: a byte-by-byte widening turned "é" into two wrong characters
 		auto*              text = new (buf.data() + params.front().second) UE::FText(UE::FText::AsCultureInvariant(UE::FString(w.c_str())));
 		a_widget->ProcessEvent(fn, buf.data());
 		text->~FText();
@@ -50,14 +81,15 @@ namespace uix
 
 	namespace
 	{
-		bool Apply(UE::UObject* a_w, double a_size, const float* a_outline, int a_outlineSize = 1)
+		bool Apply(UE::UObject* a_w, double a_size, const float* a_outline, int a_outlineSize = 1, bool a_fallback = false)
 		{
 		static auto*           fontInfo = reinterpret_cast<UE::UStruct*>(UE::StaticFindObject<UE::UObject>(nullptr, nullptr, L"/Script/SlateCore.SlateFontInfo"));
-		static reflect::Handle s_font;
-		auto*                  font = reflect::Get(s_font);
+		static reflect::Handle s_font, s_fallbackFont;
+		auto&                  slot = a_fallback ? s_fallbackFont : s_font;
+		auto*                  font = reflect::Get(slot);
 		if (!font) {
-			font = ui::Load(kFontAsset);
-			if (font) s_font = reflect::Hold(font);
+			font = ui::Load(a_fallback ? kFallbackFontAsset : kFontAsset);
+			if (font) slot = reflect::Hold(font);
 		}
 		if (!a_w || !a_w->GetClass() || !fontInfo || !font || !reflect::Ok()) return false;
 		const auto propOff = reflect::Offset(a_w->GetClass(), "Font");
@@ -87,9 +119,9 @@ namespace uix
 		}
 	}
 
-	bool ApplyFont(UE::UObject* a_w, double a_size)
+	bool ApplyFont(UE::UObject* a_w, double a_size, bool a_fallback)
 	{
-		return Apply(a_w, a_size, nullptr);
+		return Apply(a_w, a_size, nullptr, 1, a_fallback);
 	}
 
 	bool ApplyBoldFont(UE::UObject* a_w, double a_size, const float* a_rgba, int a_outlineSize)

@@ -5,8 +5,11 @@
 #include "PEHook.h"
 #include "Quests.h"
 #include "Reflect.h"
+#include "TextUtil.h"
 #include "Ui.h"
 #include "UiText.h"
+
+#include <imm.h>
 
 #include <cmath>
 #include <cstring>
@@ -18,9 +21,11 @@ namespace msearch
 	{
 		using Clock = std::chrono::steady_clock;
 
-		constexpr std::size_t kMaxText = 40;
+		constexpr std::size_t kMaxText = 40;    // characters (code points) of a search text
+		constexpr std::size_t kMaxBytes = 120;  // and bytes of its UTF-8: the controller keyboard reads it through a 128-byte buffer
+		wchar_t               g_highSurrogate = 0;   // the first half of a typed character outside the BMP, until the second half arrives - under g_qMutex
 
-		// the text of the search bar (one per menu, ASCII), and the flags the window procedure shares with the game thread
+		// the text of the search bar (one per menu, UTF-8), and the flags the window procedure shares with the game thread
 		bool                g_conflict = false;   // another search mod is installed: everything here stands down
 		std::mutex           g_qMutex;             // the window procedure may run on another thread than the game's
 		std::string          g_queries[6];
@@ -205,10 +210,15 @@ for (UE::UStruct* c = a_item->GetClass(); c; c = c->GetSuperStruct()) {
 			return s;
 		}
 
-		std::string Lower(std::string a_s)
+		std::string Lower(const std::string& a_s)
 		{
-			for (auto& c : a_s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-			return a_s;
+			return textutil::Lower(a_s);
+		}
+
+		// does an item's name hold the search text (a_query is Lower() of what was typed)?
+		bool Matches(UE::UObject* a_item, menus::Menu a_menu, const std::string& a_query)
+		{
+			return textutil::Contains(ItemName(a_item, a_menu), a_query, cfg::Get().ignoreAccents);
 		}
 
 		struct FilterState
@@ -470,7 +480,7 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 			if (key != B.shown) {
 				uix::SetText(label, show);
 				uix::Ink(label, hint ? kBarHint : sel ? kBarFocus : kBarInk);
-				uix::ApplyFont(label, cfg::Get().barFontSize);
+				uix::ApplyFont(label, cfg::Get().barFontSize, uix::NeedsFallbackFont(show));   // Greek, Cyrillic, kana, Han ...: a font that draws them
 				B.shown = key;
 			}
 			if (typing != B.typing) {   // the bronze edge while it is being typed into
@@ -517,14 +527,23 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 		}
 
 		// ---- the typing: the game window's messages ----
+		// one more character on the end of a search text (UTF-8), unless it is not a printable one or the text is full
+		bool AppendTyped(std::string& a_q, char32_t a_cp)
+		{
+			if (!textutil::Typable(a_cp) || textutil::CodePoints(a_q) >= kMaxText) return false;
+			std::string add;
+			textutil::AppendCodePoint(add, a_cp);
+			if (a_q.size() + add.size() > kMaxBytes) return false;
+			a_q += add;
+			return true;
+		}
+
 		void PasteInto(std::string& a_q)
 		{
 			if (!OpenClipboard(nullptr)) return;
 			if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
 				if (const auto* w = static_cast<const wchar_t*>(GlobalLock(h))) {
-					for (; *w && a_q.size() < kMaxText; ++w) {
-						if (*w >= 32 && *w < 127) a_q.push_back(static_cast<char>(*w));
-					}
+					textutil::ForEachCodePoint(std::wstring_view(w),[&](char32_t a_cp) { AppendTyped(a_q, a_cp); });   // a line break and other controls are skipped
 					GlobalUnlock(h);
 				}
 			}
@@ -537,17 +556,27 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 			auto&            q = g_queries[static_cast<int>(a_menu) % 6];
 			bool&            sel = g_selAll[static_cast<int>(a_menu) % 6];
 			if (a_c == 8) {
+				g_highSurrogate = 0;
 				if (sel) q.clear();
-				else if (!q.empty()) q.pop_back();
+				else textutil::PopCodePoint(q);   // a whole character, however many bytes it takes
 				sel = false;
 			} else if (a_c == 0x16) {   // Ctrl+V
+				g_highSurrogate = 0;
 				if (sel) q.clear();
 				sel = false;
 				PasteInto(q);
-			} else if (a_c >= 32 && a_c < 127) {
+			} else if (a_c >= 0xD800 && a_c <= 0xDBFF) {
+				g_highSurrogate = a_c;   // the first half of a character outside the BMP (an emoji, a rare CJK character): the second half is the next WM_CHAR
+			} else {
+				char32_t cp = a_c;
+				if (a_c >= 0xDC00 && a_c <= 0xDFFF) {
+					cp = g_highSurrogate ? 0x10000 + ((static_cast<char32_t>(g_highSurrogate) - 0xD800) << 10) + (a_c - 0xDC00) : 0;   // a lone second half is dropped
+				}
+				g_highSurrogate = 0;
+				if (!textutil::Typable(cp)) return;
 				if (sel) q.clear();   // a selected text is replaced by what is typed
 				sel = false;
-				if (q.size() < kMaxText) q.push_back(static_cast<char>(a_c));
+				AppendTyped(q, cp);
 			}
 		}
 
@@ -575,6 +604,60 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 
 		constexpr UINT_PTR kTimerId = 0x4D53;
 
+		// ---- the IME (Japanese, Chinese ...) ----
+		// A game window normally takes the input method away from the window (no text field wants it), so the keys of a Japanese or Chinese IME arrive as plain
+		// Latin letters. While a bar is being typed into the window gets its default input context back; the committed text arrives in WM_IME_COMPOSITION
+		// (GCS_RESULTSTR) and is typed into the bar from there, while the system's own composition and candidate windows draw the text still being composed.
+		bool g_imeGiven = false;   // we gave the default input context back and have to take it away again
+
+		void SyncIme(HWND a_h)
+		{
+			static bool s_on = false;
+			const bool  want = g_typing.load() && cfg::Get().ime;
+			if (want == s_on) return;
+			s_on = want;
+			if (want) {
+				if (HIMC c = ImmGetContext(a_h)) {
+					ImmReleaseContext(a_h, c);   // the window has one already: the game left it alone
+				} else if (ImmAssociateContextEx(a_h, nullptr, IACE_DEFAULT)) {
+					g_imeGiven = true;
+					logger::info("ime: the window had no input context - the default one is on while a bar is typed into");
+				}
+			} else if (g_imeGiven) {
+				ImmAssociateContext(a_h, nullptr);
+				g_imeGiven = false;
+			}
+		}
+
+		// the composition window under the bar's left end, the candidate list below it
+		// Only from WM_IME_STARTCOMPOSITION, never from WM_IME_NOTIFY: ImmSetCompositionWindow / ImmSetCandidateWindow send a WM_IME_NOTIFY of their own, so
+		// placing the windows on every notification loops without end (the stack overflow of 2026-10-20). The guard stops a nested call all the same.
+		void PlaceImeWindows(HWND a_h, menus::Menu a_menu)
+		{
+			static bool s_in = false;
+			if (s_in) return;
+			s_in = true;
+			struct Reset { ~Reset() { s_in = false; } } reset;
+			HIMC c = ImmGetContext(a_h);
+			if (!c) return;
+			PxRect r;
+			{
+				std::scoped_lock l(g_qMutex);
+				r = g_barPx[static_cast<int>(a_menu) % 6];
+			}
+			if (r.valid) {
+				COMPOSITIONFORM cf{};
+				cf.dwStyle = CFS_POINT;
+				cf.ptCurrentPos = { static_cast<LONG>(r.x + 8), static_cast<LONG>(r.y + r.h * 0.15) };
+				ImmSetCompositionWindow(c, &cf);
+				CANDIDATEFORM cand{};
+				cand.dwStyle = CFS_CANDIDATEPOS;
+				cand.ptCurrentPos = { static_cast<LONG>(r.x), static_cast<LONG>(r.y + r.h) };
+				ImmSetCandidateWindow(c, &cand);
+			}
+			ImmReleaseContext(a_h, c);
+		}
+
 		LRESULT CALLBACK BarProc(HWND a_h, UINT a_m, WPARAM a_w, LPARAM a_l)
 		{
 			if (a_m == WM_TIMER && a_w == kTimerId) {   // the timer set below: a tick for a player whose controller the game barely polls
@@ -587,6 +670,7 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 				return 0;
 			}
 			if (OwnBarOn()) {
+				SyncIme(a_h);
 				auto       menu = menus::Active();
 				const bool cont = menu == menus::Menu::kNone && container::Open();
 				if (cont) menu = g_typing.load() ? static_cast<menus::Menu>(g_typingMenu.load()) : SideUnderCursor();   // the container / barter menu: the side typed into, else the one the mouse is on
@@ -611,6 +695,33 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 						case WM_CHAR:
 							Typed(static_cast<wchar_t>(a_w), menu);
 							return 0;
+						case WM_IME_COMPOSITION:
+							if (!cfg::Get().ime) break;   // [Search] bIme=0: the game sees the IME messages as it always did
+							if (a_l & GCS_RESULTSTR) {   // text the IME has committed (kana turned into kanji, a pinyin choice): typed into the bar
+								if (HIMC c = ImmGetContext(a_h)) {
+									const LONG bytes = ImmGetCompositionStringW(c, GCS_RESULTSTR, nullptr, 0);
+									if (bytes > 0) {
+										std::wstring w(static_cast<std::size_t>(bytes) / sizeof(wchar_t), L'\0');
+										ImmGetCompositionStringW(c, GCS_RESULTSTR, w.data(), bytes);
+										for (const wchar_t ch : w) Typed(ch, menu);
+									}
+									ImmReleaseContext(a_h, c);
+								}
+							}
+							// the system draws what is still being composed; without the result flags it makes no WM_IME_CHAR / WM_CHAR of the text we took
+							return DefWindowProcW(a_h, a_m, a_w, a_l & ~static_cast<LPARAM>(GCS_RESULTSTR | GCS_RESULTCLAUSE | GCS_RESULTREADSTR | GCS_RESULTREADCLAUSE));
+						case WM_IME_STARTCOMPOSITION:
+							if (!cfg::Get().ime) break;
+							PlaceImeWindows(a_h, menu);
+							return DefWindowProcW(a_h, a_m, a_w, a_l);
+						case WM_IME_NOTIFY:
+						case WM_IME_ENDCOMPOSITION:
+						case WM_IME_SETCONTEXT:
+							if (!cfg::Get().ime) break;
+							return DefWindowProcW(a_h, a_m, a_w, a_l);
+						case WM_IME_CHAR:   // the committed text came through WM_IME_COMPOSITION: nothing is typed twice
+							if (!cfg::Get().ime) break;
+							return 0;
 						case WM_LBUTTONDOWN:
 							if (cont && !InsideBar(menu, a_l)) {   // the other side's bar: typing moves there
 								const auto other = menu == menus::Menu::kContainerYours ? menus::Menu::kContainerTheirs : menus::Menu::kContainerYours;
@@ -628,6 +739,7 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 						if (a_m == WM_KEYDOWN && a_w == 'F' && ctrl && !alt) {
 							g_typingMenu = static_cast<int>(menu);
 							g_typing = true;
+							SyncIme(a_h);
 							return 0;
 						}
 						if (a_m == WM_LBUTTONDOWN) {
@@ -636,6 +748,7 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 								if (m != menus::Menu::kNone && MenuEnabled(m) && InsideBar(m, a_l)) {
 									g_typingMenu = static_cast<int>(m);
 									g_typing = true;
+									SyncIme(a_h);
 									return 0;
 								}
 							}
@@ -781,7 +894,7 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 		bool nonMatching = false, foreign = false;
 		for (auto* o : live) {
 			if (!known.count(o)) foreign = true;
-			if (!nonMatching && Lower(ItemName(o, a_menu)).find(query) == std::string::npos) nonMatching = true;
+			if (!nonMatching && !Matches(o, a_menu, query)) nonMatching = true;
 		}
 		const bool whole = nonMatching && (known.empty() || foreign);
 		const bool rebuilt = whole || (nonMatching && S.active && query == S.appliedText);
@@ -821,7 +934,7 @@ bool BuildBar(menus::Menu a_menu, UE::UObject* a_canvas)
 			}
 		}
 		for (auto* o : source) {
-					if (Lower(ItemName(o, a_menu)).find(query) != std::string::npos) keep.push_back(o);
+					if (Matches(o, a_menu, query)) keep.push_back(o);
 		}
 		ApplyItems(list, keep);
 		S.applied = keep;
@@ -986,10 +1099,8 @@ if (g_typing.load()) {
 	std::string GetText(menus::Menu a_menu) { return QueryOf(a_menu); }
 	void SetText(menus::Menu a_menu, const std::string& a_text)
 	{
-		std::string s;
-		for (const char c : a_text) {
-			if (c >= 32 && c < 127 && s.size() < kMaxText) s.push_back(c);
-		}
+		std::string s;   // a_text is UTF-8 (the keyboard plugin sends plain ASCII); what cannot be typed is left out
+		textutil::ForEachCodePoint(textutil::Wide(a_text), [&](char32_t a_cp) { AppendTyped(s, a_cp); });
 		SetQuery(a_menu, s);
 	}
 	bool PanelOnLeft(menus::Menu a_menu)

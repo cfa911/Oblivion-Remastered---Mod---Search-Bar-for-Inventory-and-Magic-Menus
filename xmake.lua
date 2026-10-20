@@ -20,7 +20,7 @@ target("MenuSearch")
         author = "cfa911",
         description = "Search bar, typing and list filter for the Inventory, Magic and container / barter menus (Oblivion Remastered)"
     })
-    add_syslinks("user32")
+    add_syslinks("user32", "imm32")
     add_files("menusearch/*.cpp", "src/Ui.cpp", "src/Reflect.cpp", "src/PEHook.cpp", "src/Menus.cpp", "src/UiText.cpp")
     add_headerfiles("menusearch/*.h")
     add_includedirs("src", "menusearch")
