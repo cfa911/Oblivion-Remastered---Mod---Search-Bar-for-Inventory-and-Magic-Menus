@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+- **Typing beyond plain ASCII.** The search text was plain ASCII end to end. It is now UTF-8: accents, umlauts, Polish letters, Cyrillic, Greek, Japanese kana and kanji and Chinese characters can be typed with your keyboard layout or pasted, up to 40 characters. Backspace removes a whole character. This covers the game's eight languages: English, French, Italian, German, Spanish, Polish, Portuguese (Brazil), Japanese and Simplified Chinese.
+- **Accent-insensitive matching** (`bIgnoreAccents=1` in `[Search]`, on by default): a plain letter also finds the accented one (**a** finds **ä**, **l** finds **ł**, `strasse` finds Straße), a letter you type with its accent finds only that letter. Case, hiragana / katakana and half-width / full-width forms are always ignored. `0` makes a plain letter find only itself.
+- **Letters the game's font lacks are drawn** with the engine's fallback font, so Cyrillic, Greek, Chinese and Japanese show in the bar in any language of the game.
+- **Japanese and Chinese input methods (IME)** type into the bars (`bIme=1` in `[Search]`, on by default; `0` leaves the game's own behavior). Not tried with a real IME (kana to kanji, pinyin), only that the game stays up while typing; report it if it misbehaves and set `bIme=0` meanwhile.
+- Two exports for Improved Wheels Plus 1.2.0 and newer, `MenuSearch_IsTyping` and `MenuSearch_CursorOverBar`: the wheel reads the keyboard and mouse itself, so digits typed into a bar assigned wheel slots and a click on a bar with the wheel open assigned slot 1. The wheel now asks SearchLight first.
+
+### Changed
+- The ini comments of both plugins describe the new settings.
+- SearchLight - Controller Keyboard has no new feature (it still types plain ASCII); it is rebuilt with the shared text code and has the same version number.
+
 ## 1.2.1
 
 ### Changed

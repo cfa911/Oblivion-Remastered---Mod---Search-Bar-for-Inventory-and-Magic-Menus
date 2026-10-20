@@ -1,6 +1,6 @@
 # SearchLight — search bars for the Inventory, Magic, Quests and Container menus (Oblivion Remastered)
 
-Two OBSE64 plugins for *The Elder Scrolls IV: Oblivion Remastered*. Both are open source (GPL-3.0-or-later). Current mod release: **v1.2.1**.
+Two OBSE64 plugins for *The Elder Scrolls IV: Oblivion Remastered*. Both are open source (GPL-3.0-or-later). Current mod release: **v1.3.0**.
 
 | Plugin | What it does | Needs |
 |---|---|---|
@@ -14,12 +14,13 @@ The two are separate downloads. The keyboard is useless without SearchLight and 
 - The list stays filtered through everything the game does to it (equip, use, drop, buy, sell, change tab, reopen the menu). The filter runs in the same frame the game rebuilds the list, so the unfiltered list never flashes on screen.
 - **Inventory, Magic and quests:** one bar at the top of the menu.
 - **Container and barter menu:** a green bar over your list (*Player*) and a red one over the container's or the merchant's (*Container* / *Seller*). Each side is searched on its own. A plain container shows only its own bar.
+- **Typing is not limited to ASCII:** accents, umlauts, Cyrillic, Greek, Japanese and Chinese characters can be typed or pasted (the game's eight languages). By default a plain letter also finds the accented one (**a** finds **ä**), while a letter you type with its accent finds only that letter (`bIgnoreAccents` in the ini). Japanese and Chinese input methods (IME) type into the bars too (`bIme`, on by default): this part could not be tried with a real IME, only that the game stays up, so please report problems.
 - Keyboard and mouse: **Ctrl+F**, or click a bar, to type. Backspace, Ctrl+V to paste, Ctrl+A to select all, Enter or Esc to stop. In the container menu Ctrl+F types into the side the mouse is on.
 - Controller: hold **D-pad right** for 0.4 s to open the keyboard (in the container menu: right = your list, **D-pad left** = the other one; it opens on the other half of the screen so it never covers the list you search). A types, X deletes (hold to clear), Y is space, B or Start closes. The first letter of a search is a capital. The menu stands still while it is open, but LT and RT still switch its tabs and the search follows the list. A tap on D-pad left or right still does what the game does.
 - Every bar's picture, place and size are in the inis; the pictures are plain PNGs you can replace.
-- Works with Improved Wheels Plus 1.1.2 or newer (it steps aside while the keyboard is open).
+- Works with Improved Wheels Plus 1.1.2 or newer (it steps aside while the keyboard is open). With Improved Wheels Plus 1.2.0 or newer the wheel also leaves the digits and letters you type into a bar, and a click on a bar, to the bar.
 
-Limits: the Inventory, Magic, quests and container / barter menus (spell merchants' spell lists are not searched; a body's bar says *Container*); plain ASCII typing; Xbox button icons only. Built and tested on game build **1.512.105.0**.
+Limits: the Inventory, Magic, quests and container / barter menus (spell merchants' spell lists are not searched; a body's bar says *Container*); the controller keyboard types plain ASCII only (A-Z, digits, a few signs); Xbox button icons only. Built and tested on game build **1.512.105.0**.
 
 ## Install
 
